@@ -1,133 +1,100 @@
 from flask import Flask, jsonify, request
-import requests # Para hacer llamadas a APIs externas
-import sqlite3 # Para la base de datos SQLite
-import os # Para construir la ruta a la base de datos
+import requests 
+import sqlite3 
+import os
+# json ya no es necesario aquí porque no guardaremos datos de restauración complejos
 
 app = Flask(__name__)
 
-# --- Configuración de la Base de Datos ---
-DATABASE_FILE = 'inventario.db' # Nombre del archivo de la base de datos
+DATABASE_FILE = 'inventario.db'
+EXCHANGE_RATE_API_KEY = "b13c1920a6582926f6d00078" 
+DEFAULT_TASA_CAMBIO_USD_CLP = 980.0
 
 def get_db_connection():
-    """Crea y devuelve una conexión a la base de datos."""
     conn = sqlite3.connect(DATABASE_FILE)
-    conn.row_factory = sqlite3.Row # Permite acceder a las columnas por nombre
+    conn.row_factory = sqlite3.Row
     return conn
 
 def init_db():
-    """Inicializa la base de datos y crea las tablas si no existen."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Tabla de Productos
+    # Tabla de Productos (sin columnas de papelera)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS productos (
             codigo TEXT PRIMARY KEY,
             nombre TEXT NOT NULL,
-            stock_casa_matriz INTEGER DEFAULT 0
+            stock_casa_matriz INTEGER DEFAULT 0 CHECK(stock_casa_matriz >= 0)
         )
     ''')
+    app.logger.info("Tabla 'productos' verificada/creada.")
 
-    # Tabla de Sucursales Maestras
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS sucursales_maestras (
             id_sucursal TEXT PRIMARY KEY,
             nombre_sucursal TEXT NOT NULL UNIQUE
         )
     ''')
+    app.logger.info("Tabla 'sucursales_maestras' verificada/creada.")
 
-    # Tabla de Productos en Sucursales (relación muchos a muchos con atributos)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS productos_sucursales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             producto_codigo TEXT NOT NULL,
             sucursal_id TEXT NOT NULL,
-            cantidad INTEGER DEFAULT 0,
+            cantidad INTEGER DEFAULT 0 CHECK(cantidad >= 0),
             precio_local REAL DEFAULT 0.0,
             FOREIGN KEY (producto_codigo) REFERENCES productos (codigo) ON DELETE CASCADE,
             FOREIGN KEY (sucursal_id) REFERENCES sucursales_maestras (id_sucursal) ON DELETE CASCADE,
-            UNIQUE (producto_codigo, sucursal_id) -- Un producto solo puede estar una vez por sucursal
+            UNIQUE (producto_codigo, sucursal_id)
         )
     ''')
+    app.logger.info("Tabla 'productos_sucursales' verificada/creada.")
+    
     conn.commit()
 
-    # Poblar sucursales maestras si la tabla está vacía (solo la primera vez)
     cursor.execute("SELECT COUNT(*) FROM sucursales_maestras")
     if cursor.fetchone()[0] == 0:
         sucursales_iniciales = [
-            ("S01", "Sucursal Capital"),
-            ("S02", "Sucursal Valparaíso"),
-            ("S03", "Sucursal Concepción"),
-            ("S04", "Sucursal Antofagasta")
+            ("S01", "Sucursal Capital"), ("S02", "Sucursal Valparaíso"),
+            ("S03", "Sucursal Concepción"), ("S04", "Sucursal Antofagasta")
         ]
         cursor.executemany("INSERT INTO sucursales_maestras (id_sucursal, nombre_sucursal) VALUES (?, ?)", sucursales_iniciales)
         conn.commit()
         app.logger.info("Tabla 'sucursales_maestras' poblada con datos iniciales.")
-
+    
     conn.close()
-
-
-DEFAULT_TASA_CAMBIO_USD_CLP = 980.0 # Valor de respaldo
-EXCHANGE_RATE_API_KEY = "b13c1920a6582926f6d00078" 
 
 def obtener_tasa_cambio_actual_usd_clp():
     moneda_local_iso = "CLP"
-    
-    if EXCHANGE_RATE_API_KEY == "TU_API_KEY_AQUI" or not EXCHANGE_RATE_API_KEY:
-        app.logger.error("API Key para ExchangeRate-API no configurada correctamente. Usando valor por defecto para tasa de cambio.")
+    if not EXCHANGE_RATE_API_KEY or EXCHANGE_RATE_API_KEY == "TU_API_KEY_AQUI":
+        app.logger.error("API Key para ExchangeRate-API no configurada. Usando valor por defecto.")
         return DEFAULT_TASA_CAMBIO_USD_CLP
-
     api_url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/latest/USD"
-    
-    
-    app.logger.info(f"Intentando obtener tasa de cambio desde ExchangeRate-API: https://v6.exchangerate-api.com/v6/***API_KEY_HIDDEN***/latest/USD")
-    
+    app.logger.info(f"Intentando obtener tasa de cambio desde ExchangeRate-API...")
     try:
-        response = requests.get(api_url, timeout=10) 
-        app.logger.debug(f"Respuesta de ExchangeRate-API - Status: {response.status_code}")
-        response.raise_for_status() 
-        
+        response = requests.get(api_url, timeout=10)
+        response.raise_for_status()
         data = response.json()
-        app.logger.debug(f"Respuesta JSON completa de ExchangeRate-API: {data}") 
-        
         if data.get("result") == "success":
             tasa = data.get("conversion_rates", {}).get(moneda_local_iso)
             if tasa:
-                app.logger.info(f"Tasa de cambio USD a {moneda_local_iso} obtenida de ExchangeRate-API: {tasa}")
+                app.logger.info(f"Tasa USD a {moneda_local_iso} obtenida: {tasa}")
                 return float(tasa)
-            else:
-                app.logger.warning(f"No se encontró la tasa para {moneda_local_iso} en la respuesta de ExchangeRate-API. Usando valor por defecto. Respuesta: {data}")
-                return DEFAULT_TASA_CAMBIO_USD_CLP
-        else:
-            # Loguear el tipo de error específico que devuelve la API
-            error_type = data.get('error-type', 'Error desconocido de API')
-            app.logger.error(f"ExchangeRate-API devolvió un error: {error_type}. Usando valor por defecto.")
-            return DEFAULT_TASA_CAMBIO_USD_CLP
-            
-    except requests.exceptions.Timeout:
-        app.logger.error(f"Timeout al contactar ExchangeRate-API. Usando valor por defecto.")
+        app.logger.warning(f"No se encontró tasa para {moneda_local_iso} o API devolvió error. Usando valor por defecto. Respuesta: {data if 'data' in locals() else 'No data object'}")
         return DEFAULT_TASA_CAMBIO_USD_CLP
-    except requests.exceptions.HTTPError as e:
-        app.logger.error(f"Error HTTP al contactar ExchangeRate-API: {e}. Status: {e.response.status_code}. Respuesta: {e.response.text}. Usando valor por defecto.")
-        return DEFAULT_TASA_CAMBIO_USD_CLP
-    except requests.exceptions.RequestException as e: 
-        app.logger.error(f"Error de red al contactar ExchangeRate-API: {e}. Usando valor por defecto.")
-        return DEFAULT_TASA_CAMBIO_USD_CLP
-    except ValueError as e: # Si response.json() falla
-        app.logger.error(f"Error al decodificar JSON de ExchangeRate-API: {e}. Respuesta: {response.text if 'response' in locals() else 'N/A'}. Usando valor por defecto.")
-        return DEFAULT_TASA_CAMBIO_USD_CLP
-    except Exception as e: 
-        app.logger.error(f"Error inesperado en obtener_tasa_cambio_actual_usd_clp: {type(e).__name__} - {e}. Usando valor por defecto.")
+    except Exception as e:
+        app.logger.error(f"Error en obtener_tasa_cambio_actual_usd_clp: {e}. Usando valor por defecto.")
         return DEFAULT_TASA_CAMBIO_USD_CLP
 
-# --- Endpoints de la API
+# --- Endpoints de la API ---
 
 @app.route('/api/producto/<string:codigo_producto>', methods=['GET'])
 def obtener_info_producto(codigo_producto):
     producto_codigo_upper = codigo_producto.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
-
+    # Ya no se filtra por esta_eliminado
     cursor.execute("SELECT * FROM productos WHERE codigo = ?", (producto_codigo_upper,))
     producto_db = cursor.fetchone()
 
@@ -143,26 +110,23 @@ def obtener_info_producto(codigo_producto):
     ''', (producto_codigo_upper,))
     sucursales_info = [dict(row) for row in cursor.fetchall()]
     conn.close()
-
     tasa_actual_usd_clp = obtener_tasa_cambio_actual_usd_clp()
-
-    respuesta = {
-        "codigo_producto": producto_db["codigo"],
-        "nombre_producto": producto_db["nombre"],
-        "stock_casa_matriz": producto_db["stock_casa_matriz"],
-        "sucursales": sucursales_info,
-        "tasa_cambio_a_usd": tasa_actual_usd_clp
-    }
+    respuesta = dict(producto_db) 
+    respuesta["sucursales"] = sucursales_info
+    respuesta["tasa_cambio_a_usd"] = tasa_actual_usd_clp
     return jsonify(respuesta)
 
 @app.route('/api/productos', methods=['GET'])
 def obtener_todos_los_productos():
+    # Ya no se filtra por esta_eliminado
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT codigo, nombre FROM productos ORDER BY nombre")
     productos_db = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return jsonify(productos_db)
+
+# Eliminado: /api/productos/eliminados (ya no existe la papelera)
 
 @app.route('/api/sucursales_maestras', methods=['GET'])
 def obtener_sucursales_maestras():
@@ -177,7 +141,6 @@ def obtener_sucursales_maestras():
 def crear_producto():
     if not request.json:
         return jsonify({"error": "Solicitud debe ser JSON"}), 400
-
     codigo_producto = request.json.get('codigo_producto', '').strip().upper()
     nombre_producto = request.json.get('nombre_producto', '').strip()
     try:
@@ -193,16 +156,15 @@ def crear_producto():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        # Se inserta sin las columnas de papelera
         cursor.execute(
             "INSERT INTO productos (codigo, nombre, stock_casa_matriz) VALUES (?, ?, ?)",
             (codigo_producto, nombre_producto, stock_casa_matriz)
         )
         conn.commit()
         producto_creado = {
-            "codigo": codigo_producto,
-            "nombre": nombre_producto,
-            "stock_casa_matriz": stock_casa_matriz,
-            "sucursales": []
+            "codigo": codigo_producto, "nombre": nombre_producto,
+            "stock_casa_matriz": stock_casa_matriz, "sucursales": []
         }
         return jsonify(producto_creado), 201
     except sqlite3.IntegrityError:
@@ -210,78 +172,119 @@ def crear_producto():
     finally:
         conn.close()
 
+# Endpoint para eliminación física
+@app.route('/api/producto/<string:codigo_producto>', methods=['DELETE'])
+def eliminar_producto_fisicamente(codigo_producto):
+    codigo_producto_upper = codigo_producto.upper()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT codigo FROM productos WHERE codigo = ?", (codigo_producto_upper,))
+        producto_db = cursor.fetchone()
+        if not producto_db:
+            return jsonify({"error": "Producto no encontrado para eliminar"}), 404
+
+        # ON DELETE CASCADE en productos_sucursales se encargará de las filas relacionadas
+        cursor.execute("DELETE FROM productos WHERE codigo = ?", (codigo_producto_upper,))
+        conn.commit()
+        
+        if cursor.rowcount > 0:
+            return jsonify({"mensaje": f"Producto '{codigo_producto_upper}' eliminado permanentemente."}), 200
+        else:
+            # Esto no debería ocurrir si la selección anterior lo encontró
+            return jsonify({"error": "Producto no encontrado durante la eliminación"}), 404
+            
+    except sqlite3.Error as e:
+        conn.rollback()
+        app.logger.error(f"Error de BD al eliminar físicamente producto: {e}")
+        return jsonify({"error": "Error interno de base de datos"}), 500
+    finally:
+        conn.close()
+
+# Eliminado: /api/producto/<codigo_producto>/restaurar (ya no existe la papelera)
 
 @app.route('/api/producto/<string:codigo_producto>/sucursal', methods=['POST'])
 def agregar_o_actualizar_producto_en_sucursal(codigo_producto):
     codigo_producto_upper = codigo_producto.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT codigo FROM productos WHERE codigo = ?", (codigo_producto_upper,))
-    if not cursor.fetchone():
-        conn.close()
-        return jsonify({"error": "Producto no encontrado"}), 404
-
-    if not request.json:
-        conn.close()
-        return jsonify({"error": "Solicitud debe ser JSON"}), 400
-
-    id_sucursal = request.json.get('id_sucursal', '').strip().upper()
     try:
-        cantidad = int(request.json.get('cantidad'))
-        precio_local = float(request.json.get('precio_local'))
-        if cantidad < 0 or precio_local < 0:
-            conn.close()
-            return jsonify({"error": "Cantidad y precio no pueden ser negativos"}), 400
-    except (ValueError, TypeError):
-        conn.close()
-        return jsonify({"error": "cantidad debe ser un número entero y precio_local un número válido"}), 400
+        # Ya no se verifica esta_eliminado
+        cursor.execute("SELECT codigo, stock_casa_matriz FROM productos WHERE codigo = ?", (codigo_producto_upper,))
+        producto_db = cursor.fetchone()
+        if not producto_db:
+            return jsonify({"error": "Producto no encontrado"}), 404 # Cambiado mensaje
+        
+        stock_actual_casa_matriz = producto_db["stock_casa_matriz"]
+        if not request.json: return jsonify({"error": "Solicitud debe ser JSON"}), 400
+        id_sucursal = request.json.get('id_sucursal', '').strip().upper()
+        try:
+            nueva_cantidad_sucursal = int(request.json.get('cantidad'))
+            precio_local = float(request.json.get('precio_local'))
+            if nueva_cantidad_sucursal < 0 or precio_local < 0:
+                return jsonify({"error": "Cantidad y precio no pueden ser negativos"}), 400
+        except (ValueError, TypeError):
+            return jsonify({"error": "cantidad debe ser un número entero y precio_local un número válido"}), 400
 
-    if not id_sucursal:
-        conn.close()
-        return jsonify({"error": "id_sucursal es requerido"}), 400
-    
-    cursor.execute("SELECT id_sucursal FROM sucursales_maestras WHERE id_sucursal = ?", (id_sucursal,))
-    if not cursor.fetchone():
-        conn.close()
-        return jsonify({"error": f"ID de sucursal '{id_sucursal}' no es válido."}), 400
-    
-    try:
+        if not id_sucursal: return jsonify({"error": "id_sucursal es requerido"}), 400
+        cursor.execute("SELECT id_sucursal FROM sucursales_maestras WHERE id_sucursal = ?", (id_sucursal,))
+        if not cursor.fetchone(): return jsonify({"error": f"ID de sucursal '{id_sucursal}' no es válido."}), 400
+
+        cantidad_anterior_sucursal = 0
+        cursor.execute("SELECT cantidad FROM productos_sucursales WHERE producto_codigo = ? AND sucursal_id = ?", (codigo_producto_upper, id_sucursal))
+        producto_en_sucursal_db = cursor.fetchone()
+        if producto_en_sucursal_db: cantidad_anterior_sucursal = producto_en_sucursal_db["cantidad"]
+        
+        diferencia_stock_movido = nueva_cantidad_sucursal - cantidad_anterior_sucursal
+        nuevo_stock_casa_matriz = stock_actual_casa_matriz - diferencia_stock_movido
+
+        if nuevo_stock_casa_matriz < 0:
+            return jsonify({
+                "error": "Stock insuficiente en casa matriz.",
+                "stock_disponible_casa_matriz": stock_actual_casa_matriz,
+                "requerido_para_mover_a_sucursal": diferencia_stock_movido 
+            }), 400
+
+        cursor.execute("UPDATE productos SET stock_casa_matriz = ? WHERE codigo = ?", (nuevo_stock_casa_matriz, codigo_producto_upper))
         cursor.execute('''
             INSERT INTO productos_sucursales (producto_codigo, sucursal_id, cantidad, precio_local)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(producto_codigo, sucursal_id) DO UPDATE SET
                 cantidad = excluded.cantidad,
                 precio_local = excluded.precio_local
-        ''', (codigo_producto_upper, id_sucursal, cantidad, precio_local))
+        ''', (codigo_producto_upper, id_sucursal, nueva_cantidad_sucursal, precio_local))
+        
         conn.commit()
-        mensaje = f"Producto '{codigo_producto_upper}' asignado/actualizado en sucursal '{id_sucursal}'."
+        mensaje = f"Producto '{codigo_producto_upper}' asignado/actualizado en sucursal '{id_sucursal}'. Stock casa matriz ajustado."
         
         cursor.execute("SELECT * FROM productos WHERE codigo = ?", (codigo_producto_upper,))
-        producto_db = cursor.fetchone()
+        producto_db_actualizado = cursor.fetchone()
         cursor.execute('''
             SELECT ps.sucursal_id, sm.nombre_sucursal, ps.cantidad, ps.precio_local
-            FROM productos_sucursales ps
-            JOIN sucursales_maestras sm ON ps.sucursal_id = sm.id_sucursal
+            FROM productos_sucursales ps JOIN sucursales_maestras sm ON ps.sucursal_id = sm.id_sucursal
             WHERE ps.producto_codigo = ?
         ''', (codigo_producto_upper,))
         sucursales_info = [dict(row) for row in cursor.fetchall()]
         
-        producto_actualizado = dict(producto_db)
-        producto_actualizado["sucursales"] = sucursales_info
-
-        return jsonify({"mensaje": mensaje, "producto": producto_actualizado}), 200
+        producto_respuesta = dict(producto_db_actualizado)
+        producto_respuesta["sucursales"] = sucursales_info
+        return jsonify({"mensaje": mensaje, "producto": producto_respuesta}), 200
     
     except sqlite3.Error as e:
         conn.rollback()
-        app.logger.error(f"Error de base de datos al asignar producto a sucursal: {e}")
+        app.logger.error(f"Error de BD al asignar producto a sucursal: {e}")
         return jsonify({"error": "Error interno de base de datos"}), 500
     finally:
-        conn.close()
-
+        if conn: conn.close()
 
 if __name__ == '__main__':
     import logging
     logging.basicConfig(level=logging.DEBUG) 
+    
+    # Importante: Borra el archivo inventario.db antes de ejecutar esto la primera vez
+    # para asegurar que se cree con el nuevo esquema simplificado.
+    if os.path.exists(DATABASE_FILE):
+        app.logger.info(f"Archivo de base de datos '{DATABASE_FILE}' existente. Para un esquema limpio sin papelera, considera eliminarlo antes de iniciar.")
     
     init_db()
     app.logger.info(f"Base de datos '{DATABASE_FILE}' inicializada y lista.")

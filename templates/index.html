@@ -13,11 +13,17 @@
         .alert-error { background-color: #fff1f2; border: 1px solid #ffdde0; color: #be123c; }
         .alert-danger { background-color: #fef2f2; border: 1px solid #fee2e2; color: #dc2626; }
         .alert-success { background-color: #f0fdf4; border: 1px solid #dcfce7; color: #166534; }
+        .alert-info { background-color: #eff6ff; border: 1px solid #dbeafe; color: #2563eb; }
+
+        .product-list-item:hover {
+            background-color: #374151; /* gray-700 for dark theme */
+            cursor: pointer;
+        }
     </style>
 </head>
 <body class="bg-gradient-to-br from-slate-900 to-slate-700 text-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
 
-    <div class="bg-slate-800 shadow-2xl rounded-xl p-6 md:p-10 w-full max-w-lg transform transition-all duration-300 hover:scale-105">
+    <div class="bg-slate-800 shadow-2xl rounded-xl p-6 md:p-10 w-full max-w-3xl transform transition-all duration-300 hover:scale-[1.02]">
         <div class="text-center mb-8">
             <i class="fas fa-store text-5xl text-sky-400 mb-4"></i>
             <h1 class="text-3xl font-bold tracking-tight text-sky-300">Consulta y Gestión de Inventario</h1>
@@ -34,40 +40,77 @@
             {% endif %}
         {% endwith %}
 
-        <form action="{{ url_for('buscar_producto') }}" method="POST" class="space-y-6 mb-8">
-            <div>
-                <label for="codigo_producto_busqueda" class="block text-sm font-medium text-sky-200 mb-1">Código del Producto a Buscar</label>
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <i class="fas fa-barcode text-slate-400"></i>
+        <div class="md:flex md:space-x-8">
+            <div class="md:w-1/2 space-y-6 mb-8 md:mb-0">
+                <form action="{{ url_for('buscar_producto') }}" method="POST" class="space-y-6">
+                    <div>
+                        <label for="codigo_producto_busqueda" class="block text-sm font-medium text-sky-200 mb-1">Código del Producto a Buscar</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-barcode text-slate-400"></i>
+                            </div>
+                            <input type="text" id="codigo_producto_busqueda" name="codigo_producto"
+                                   class="bg-slate-700 border border-slate-600 text-gray-100 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block w-full pl-10 p-3 placeholder-slate-400"
+                                   placeholder="Ej: P001" required
+                                   oninput="this.value = this.value.toUpperCase()">
+                        </div>
                     </div>
-                    <input type="text" id="codigo_producto_busqueda" name="codigo_producto"
-                           class="bg-slate-700 border border-slate-600 text-gray-100 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block w-full pl-10 p-3 placeholder-slate-400"
-                           placeholder="Ej: P001" required
-                           oninput="this.value = this.value.toUpperCase()">
-                </div>
+                    <button type="submit"
+                            class="w-full bg-sky-600 hover:bg-sky-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 transition duration-300 ease-in-out transform hover:-translate-y-0.5">
+                        <i class="fas fa-search mr-2"></i>Buscar Producto
+                    </button>
+                </form>
+        
+                <div class="space-y-3 pt-4 border-t border-slate-700">
+                     <a href="{{ url_for('gestionar_nuevo_producto') }}"
+                       class="w-full flex items-center justify-center bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-300">
+                        <i class="fas fa-plus-circle mr-2"></i>Agregar Nuevo Producto
+                    </a>
+                     <a href="{{ url_for('gestionar_asignacion_sucursal') }}"
+                       class="w-full flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-opacity-50 transition duration-300">
+                        <i class="fas fa-dolly-flatbed mr-2"></i>Asignar Producto a Sucursal
+                    </a>
+                    </div>
             </div>
-            <button type="submit"
-                    class="w-full bg-sky-600 hover:bg-sky-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 transition duration-300 ease-in-out transform hover:-translate-y-0.5">
-                <i class="fas fa-search mr-2"></i>Buscar Producto
-            </button>
-        </form>
 
-        <div class="space-y-4">
-             <a href="{{ url_for('gestionar_nuevo_producto') }}"
-               class="w-full flex items-center justify-center bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-300">
-                <i class="fas fa-plus-circle mr-2"></i>Agregar Nuevo Producto
-            </a>
-             <a href="{{ url_for('gestionar_asignacion_sucursal') }}"
-               class="w-full flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-opacity-50 transition duration-300">
-                <i class="fas fa-dolly-flatbed mr-2"></i>Asignar Producto a Sucursal
-            </a>
+            <div class="md:w-1/2">
+                <h2 class="text-xl font-semibold text-sky-300 mb-3 border-b border-slate-700 pb-2">Productos Activos</h2>
+                {% if productos_existentes %}
+                    <div class="max-h-80 overflow-y-auto bg-slate-700/50 p-3 rounded-lg shadow-inner">
+                        <ul class="space-y-2">
+                            {% for producto in productos_existentes %}
+                                <li class="product-list-item p-2 rounded-md transition-colors duration-150" 
+                                    onclick="seleccionarProducto('{{ producto.codigo }}')"
+                                    title="Clic para buscar {{ producto.codigo }}">
+                                    <span class="font-semibold text-sky-400">{{ producto.codigo }}</span> - 
+                                    <span class="text-slate-300">{{ producto.nombre }}</span>
+                                </li>
+                            {% else %}
+                                <li>
+                                    <p class="text-slate-400 italic">No hay productos activos para mostrar.</p>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% else %}
+                    <p class="text-slate-400 italic">No hay productos activos para mostrar o no se pudieron cargar.</p>
+                {% endif %}
+            </div>
         </div>
     </div>
 
     <footer class="mt-12 text-center text-sm text-slate-500">
-        <p>&copy; {{ current_year }} Mañana es feriado S.A. - Sistema de Integración de Plataformas</p>
+        <p>&copy; {{ current_year }} Mi Empresa S.A. - Sistema de Integración de Plataformas</p>
     </footer>
+
+    <script>
+        function seleccionarProducto(codigo) {
+            const inputBusqueda = document.getElementById('codigo_producto_busqueda');
+            if (inputBusqueda) {
+                inputBusqueda.value = codigo;
+            }
+        }
+    </script>
 
 </body>
 </html>
