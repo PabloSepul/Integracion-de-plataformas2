@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buscador de Productos Corporativo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .alert { padding: 1rem; margin-bottom: 1rem; border-radius: 0.375rem; font-weight: 500; }
+        .alert-warning { background-color: #fffbeb; border: 1px solid #fef3c7; color: #b45309; }
+        .alert-error { background-color: #fff1f2; border: 1px solid #ffdde0; color: #be123c; }
+        .alert-danger { background-color: #fef2f2; border: 1px solid #fee2e2; color: #dc2626; }
+        .alert-success { background-color: #f0fdf4; border: 1px solid #dcfce7; color: #166534; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 to-slate-700 text-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="bg-slate-800 shadow-2xl rounded-xl p-6 md:p-10 w-full max-w-lg transform transition-all duration-300 hover:scale-105">
+        <div class="text-center mb-8">
+            <i class="fas fa-store text-5xl text-sky-400 mb-4"></i>
+            <h1 class="text-3xl font-bold tracking-tight text-sky-300">Consulta y Gestión de Inventario</h1>
+            <p class="text-slate-400 mt-2">Busca, agrega o asigna productos.</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} mb-4 text-sm" role="alert">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form action="{{ url_for('buscar_producto') }}" method="POST" class="space-y-6 mb-8">
+            <div>
+                <label for="codigo_producto_busqueda" class="block text-sm font-medium text-sky-200 mb-1">Código del Producto a Buscar</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fas fa-barcode text-slate-400"></i>
+                    </div>
+                    <input type="text" id="codigo_producto_busqueda" name="codigo_producto"
+                           class="bg-slate-700 border border-slate-600 text-gray-100 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block w-full pl-10 p-3 placeholder-slate-400"
+                           placeholder="Ej: P001" required
+                           oninput="this.value = this.value.toUpperCase()">
+                </div>
+            </div>
+            <button type="submit"
+                    class="w-full bg-sky-600 hover:bg-sky-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 transition duration-300 ease-in-out transform hover:-translate-y-0.5">
+                <i class="fas fa-search mr-2"></i>Buscar Producto
+            </button>
+        </form>
+
+        <div class="space-y-4">
+             <a href="{{ url_for('gestionar_nuevo_producto') }}"
+               class="w-full flex items-center justify-center bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-300">
+                <i class="fas fa-plus-circle mr-2"></i>Agregar Nuevo Producto
+            </a>
+             <a href="{{ url_for('gestionar_asignacion_sucursal') }}"
+               class="w-full flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-opacity-50 transition duration-300">
+                <i class="fas fa-dolly-flatbed mr-2"></i>Asignar Producto a Sucursal
+            </a>
+        </div>
+    </div>
+
+    <footer class="mt-12 text-center text-sm text-slate-500">
+        <p>&copy; {{ current_year }} Mañana es feriado S.A. - Sistema de Integración de Plataformas</p>
+    </footer>
+
+</body>
+</html>

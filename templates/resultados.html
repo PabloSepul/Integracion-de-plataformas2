@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resultados: {{ producto.nombre_producto }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .stock-bajo-mensaje { animation: pulse-warning 2s infinite; }
+        @keyframes pulse-warning { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 to-slate-700 text-gray-100 min-h-screen p-4 md:p-8">
+
+    <div class="container mx-auto max-w-4xl">
+        <div class="mb-6 flex justify-between items-center">
+            <a href="{{ url_for('pagina_inicio') }}"
+               class="inline-flex items-center px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-md transition duration-300">
+                <i class="fas fa-arrow-left mr-2"></i>Volver a la Búsqueda
+            </a>
+            <a href="{{ url_for('gestionar_asignacion_sucursal', codigo_producto_param=producto.codigo_producto) }}"
+               class="inline-flex items-center px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-md transition duration-300">
+                <i class="fas fa-dolly-flatbed mr-2"></i>Asignar/Actualizar en Sucursal
+            </a>
+        </div>
+
+        {% if producto %}
+        <div class="bg-slate-800 shadow-2xl rounded-xl p-6 md:p-8">
+            <div class="border-b border-slate-700 pb-6 mb-6">
+                <h1 class="text-3xl md:text-4xl font-bold text-sky-300">{{ producto.nombre_producto }}</h1>
+                <p class="text-lg text-slate-400">Código: <span class="font-semibold text-sky-400">{{ producto.codigo_producto }}</span></p>
+            </div>
+
+            <div class="mb-8 p-4 bg-slate-700 rounded-lg shadow">
+                <h2 class="text-xl font-semibold text-sky-300 mb-2 flex items-center">
+                    <i class="fas fa-warehouse mr-3 text-sky-400"></i>Stock en Casa Matriz
+                </h2>
+                <p class="text-2xl font-bold {% if producto.stock_casa_matriz == 0 %}text-red-400{% else %}text-green-400{% endif %}">
+                    {{ producto.stock_casa_matriz }} unidades
+                </p>
+                {% if producto.stock_casa_matriz == 0 %}
+                <p class="text-sm text-red-300 mt-1 stock-bajo-mensaje"><i class="fas fa-exclamation-triangle mr-1"></i>Stock agotado en casa matriz.</p>
+                {% endif %}
+            </div>
+            
+            {% if mensajes_stock_bajo %}
+                <div class="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                    <h3 class="text-lg font-semibold text-yellow-300 mb-2 flex items-center">
+                        <i class="fas fa-exclamation-circle mr-2"></i>Alertas de Stock
+                    </h3>
+                    <ul class="list-disc list-inside text-yellow-200">
+                        {% for msg in mensajes_stock_bajo %}
+                            <li class="stock-bajo-mensaje">{{ msg }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+
+            <div class="mb-8">
+                <h2 class="text-2xl font-semibold text-sky-300 mb-4 flex items-center">
+                    <i class="fas fa-store-alt mr-3 text-sky-400"></i>Detalle por Sucursal
+                </h2>
+                {% if producto.sucursales %}
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {% for suc in producto.sucursales %}
+                    <div class="bg-slate-700 p-5 rounded-lg shadow hover:shadow-sky-500/30 transition-shadow duration-300">
+                        <h3 class="text-lg font-semibold text-sky-300">{{ suc.nombre_sucursal }}</h3>
+                        <p class="text-sm text-slate-400">ID: {{ suc.id_sucursal }}</p>
+                        <div class="mt-3">
+                            <p class="text-slate-300">
+                                <i class="fas fa-cubes mr-2 text-sky-500"></i>Cantidad:
+                                <span class="font-bold {% if suc.cantidad == 0 %}text-red-400{% else %}text-green-400{% endif %}">
+                                    {{ suc.cantidad }} unidades
+                                </span>
+                            </p>
+                            <p class="text-slate-300">
+                                <i class="fas fa-dollar-sign mr-2 text-sky-500"></i>Precio:
+                                <span class="font-semibold">
+                                    {{ "${:,.2f}".format(suc.precio_local).replace(",", "X").replace(".", ",").replace("X", ".") }}
+                                </span>
+                                <span class="text-xs text-slate-400">(Moneda Local)</span>
+                            </p>
+                        </div>
+                        {% if suc.cantidad == 0 %}
+                        <p class="text-xs text-red-300 mt-2 stock-bajo-mensaje"><i class="fas fa-exclamation-triangle mr-1"></i>Stock bajo en esta sucursal.</p>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-slate-400 italic">Este producto no está asignado a ninguna sucursal.</p>
+                {% endif %}
+            </div>
+
+            {% if producto.sucursales and producto.tasa_cambio_a_usd %}
+            <div class="bg-slate-700 p-6 rounded-lg shadow">
+                <h2 class="text-xl font-semibold text-sky-300 mb-4 flex items-center">
+                    <i class="fas fa-calculator mr-3 text-sky-400"></i>Calculadora: Convertir a Dólares (USD)
+                </h2>
+                <p class="text-sm text-slate-400 mb-3">
+                    Tasa de cambio actual: 1 USD = {{ "{:,.2f}".format(producto.tasa_cambio_a_usd) }} (Moneda Local)
+                </p>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 items-end">
+                    <div>
+                        <label for="cantidad_a_convertir" class="block text-sm font-medium text-sky-200 mb-1">Cantidad de productos:</label>
+                        <input type="number" id="cantidad_a_convertir" name="cantidad_a_convertir" min="1" value="1"
+                               class="bg-slate-600 border border-slate-500 text-gray-100 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block w-full p-2.5 placeholder-slate-400">
+                    </div>
+                    <div>
+                        <label for="sucursal_calculadora" class="block text-sm font-medium text-sky-200 mb-1">Sucursal (para precio):</label>
+                        <select id="sucursal_calculadora" name="sucursal_calculadora"
+                                class="bg-slate-600 border border-slate-500 text-gray-100 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block w-full p-2.5">
+                            {% for suc in producto.sucursales %}
+                                {% if suc.cantidad > 0 %}
+                                    <option value="{{ suc.id_sucursal }}" data-precio="{{ suc.precio_local }}">
+                                        {{ suc.nombre_sucursal }} (Precio: {{ "{:,.0f}".format(suc.precio_local) }})
+                                    </option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <button type="button" onclick="convertirADolares()"
+                        class="w-full md:w-auto bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 px-5 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-300">
+                    <i class="fas fa-sync-alt mr-2"></i>Convertir a USD
+                </button>
+
+                <div class="mt-4">
+                    <p class="text-lg text-slate-300">Valor Total en Dólares (USD):
+                        <span id="resultadoDolares" class="font-bold text-2xl text-green-400 ml-2">$0.00</span>
+                    </p>
+                </div>
+            </div>
+
+            <script>
+                const productoData = {{ producto | tojson }};
+
+                function convertirADolares() {
+                    const cantidadInput = document.getElementById('cantidad_a_convertir');
+                    const sucursalSelect = document.getElementById('sucursal_calculadora');
+                    const resultadoSpan = document.getElementById('resultadoDolares');
+                    const cantidad = parseFloat(cantidadInput.value);
+                    
+                    if (isNaN(cantidad) || cantidad <= 0) {
+                        resultadoSpan.textContent = "Cantidad inválida";
+                        resultadoSpan.classList.remove('text-green-400');
+                        resultadoSpan.classList.add('text-red-400');
+                        return;
+                    }
+                    if (sucursalSelect.options.length === 0) {
+                        resultadoSpan.textContent = "No hay sucursales con stock para calcular.";
+                        resultadoSpan.classList.remove('text-green-400');
+                        resultadoSpan.classList.add('text-red-400');
+                        return;
+                    }
+                    const selectedOption = sucursalSelect.options[sucursalSelect.selectedIndex];
+                    const precioSucursalLocal = parseFloat(selectedOption.dataset.precio);
+                    const tasaCambio = parseFloat(productoData.tasa_cambio_a_usd);
+
+                    if (isNaN(precioSucursalLocal) || isNaN(tasaCambio) || tasaCambio === 0) {
+                        resultadoSpan.textContent = "Error en datos de precio/cambio.";
+                        resultadoSpan.classList.remove('text-green-400');
+                        resultadoSpan.classList.add('text-red-400');
+                        return;
+                    }
+                    const valorTotalLocal = cantidad * precioSucursalLocal;
+                    const valorEnDolares = valorTotalLocal / tasaCambio;
+                    resultadoSpan.textContent = '$' + valorEnDolares.toFixed(2);
+                    resultadoSpan.classList.add('text-green-400');
+                    resultadoSpan.classList.remove('text-red-400');
+                }
+
+                document.addEventListener('DOMContentLoaded', function() {
+                    const sucursalSelect = document.getElementById('sucursal_calculadora');
+                    const convertButton = document.querySelector('button[onclick="convertirADolares()"]'); 
+                    
+                    if (sucursalSelect && sucursalSelect.options.length === 0 && convertButton) {
+                        convertButton.disabled = true;
+                        convertButton.classList.add('opacity-50', 'cursor-not-allowed');
+                        convertButton.textContent = 'No hay sucursales para convertir';
+                        const resultadoSpan = document.getElementById('resultadoDolares');
+                        if(resultadoSpan) resultadoSpan.textContent = "N/A";
+                    } else if (sucursalSelect && sucursalSelect.options.length > 0) {
+                        // convertirADolares(); 
+                    }
+                });
+            </script>
+            {% else %}
+                {% if not producto.sucursales %}
+                <p class="text-slate-400 italic mt-6">La calculadora no está disponible porque no hay información de sucursales para este producto.</p>
+                {% elif not producto.tasa_cambio_a_usd %}
+                <p class="text-slate-400 italic mt-6">La calculadora no está disponible porque falta la tasa de cambio.</p>
+                {% endif %}
+            {% endif %}
+        </div>
+        {% else %}
+            <div class="bg-slate-800 shadow-2xl rounded-xl p-6 md:p-8 text-center">
+                <i class="fas fa-exclamation-triangle text-5xl text-red-400 mb-4"></i>
+                <h1 class="text-2xl font-semibold text-red-300">Error al Cargar Producto</h1>
+                <p class="text-slate-400 mt-2">No se pudieron cargar los detalles del producto. Intenta una nueva búsqueda.</p>
+            </div>
+        {% endif %}
+
+        <footer class="mt-12 text-center text-sm text-slate-500">
+            <p>&copy; {{ current_year }} Mi Empresa S.A. - Sistema de Integración de Plataformas</p>
+        </footer>
+    </div>
+</body>
+</html>

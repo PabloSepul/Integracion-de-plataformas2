@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asignar Producto a Sucursal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .alert { padding: 1rem; margin-bottom: 1rem; border-radius: 0.375rem; font-weight: 500; }
+        .alert-warning { background-color: #fffbeb; border: 1px solid #fef3c7; color: #b45309; }
+        .alert-error { background-color: #fff1f2; border: 1px solid #ffdde0; color: #be123c; }
+        .alert-danger { background-color: #fef2f2; border: 1px solid #fee2e2; color: #dc2626; }
+        .alert-success { background-color: #f0fdf4; border: 1px solid #dcfce7; color: #166534; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 to-slate-700 text-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="bg-slate-800 shadow-2xl rounded-xl p-6 md:p-10 w-full max-w-lg">
+        <div class="flex justify-start mb-6">
+            <a href="{{ url_for('pagina_inicio') }}"
+               class="inline-flex items-center px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-md transition duration-300">
+                <i class="fas fa-arrow-left mr-2"></i>Volver
+            </a>
+        </div>
+        <div class="text-center mb-8">
+            <i class="fas fa-dolly-flatbed text-5xl text-amber-400 mb-4"></i>
+            <h1 class="text-3xl font-bold tracking-tight text-amber-300">Asignar Producto a Sucursal</h1>
+            <p class="text-slate-400 mt-2">O actualiza stock y precio si ya está asignado.</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} mb-4 text-sm" role="alert">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form action="{{ url_for('gestionar_asignacion_sucursal', codigo_producto_param=selected_product_code if selected_product_code else None) }}" method="POST" class="space-y-6">
+            <div>
+                <label for="codigo_producto" class="block text-sm font-medium text-amber-200 mb-1">Producto <span class="text-red-400">*</span></label>
+                <select id="codigo_producto" name="codigo_producto" required
+                        class="bg-slate-700 border border-slate-600 text-gray-100 text-sm rounded-lg focus:ring-amber-500 focus:border-amber-500 block w-full p-3">
+                    <option value="" disabled {{ 'selected' if not selected_product_code and not (form_data and form_data.codigo_producto) else '' }}>-- Seleccione un Producto --</option>
+                    {% for prod in productos %}
+                        <option value="{{ prod.codigo }}" 
+                                {{ 'selected' if selected_product_code == prod.codigo or (form_data and form_data.codigo_producto == prod.codigo) else '' }}>
+                            {{ prod.nombre }} ({{ prod.codigo }})
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="id_sucursal" class="block text-sm font-medium text-amber-200 mb-1">Sucursal <span class="text-red-400">*</span></label>
+                <select id="id_sucursal" name="id_sucursal" required
+                        class="bg-slate-700 border border-slate-600 text-gray-100 text-sm rounded-lg focus:ring-amber-500 focus:border-amber-500 block w-full p-3">
+                    <option value="" disabled {{ 'selected' if not (form_data and form_data.id_sucursal) else '' }}>-- Seleccione una Sucursal --</option>
+                    {% for suc in sucursales %}
+                        <option value="{{ suc.id_sucursal }}" {{ 'selected' if form_data and form_data.id_sucursal == suc.id_sucursal else '' }}>
+                            {{ suc.nombre_sucursal }} ({{ suc.id_sucursal }})
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="cantidad" class="block text-sm font-medium text-amber-200 mb-1">Cantidad en Sucursal</label>
+                <input type="number" id="cantidad" name="cantidad" min="0"
+                       class="bg-slate-700 border border-slate-600 text-gray-100 text-sm rounded-lg focus:ring-amber-500 focus:border-amber-500 block w-full p-3 placeholder-slate-400"
+                       value="{{ form_data.cantidad if form_data else 0 }}">
+            </div>
+            <div>
+                <label for="precio_local" class="block text-sm font-medium text-amber-200 mb-1">Precio en Sucursal (Moneda Local)</label>
+                <input type="number" id="precio_local" name="precio_local" min="0" step="0.01"
+                       class="bg-slate-700 border border-slate-600 text-gray-100 text-sm rounded-lg focus:ring-amber-500 focus:border-amber-500 block w-full p-3 placeholder-slate-400"
+                       value="{{ form_data.precio_local if form_data else '0.00' }}">
+            </div>
+            <button type="submit"
+                    class="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-opacity-50 transition duration-300">
+                <i class="fas fa-check-circle mr-2"></i>Guardar Asignación
+            </button>
+        </form>
+    </div>
+
+    <footer class="mt-12 text-center text-sm text-slate-500">
+        <p>&copy; {{ current_year }} Mi Empresa S.A. - Sistema de Integración de Plataformas</p>
+    </footer>
+</body>
+</html>
