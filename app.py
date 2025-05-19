@@ -111,7 +111,6 @@ def buscar_producto():
 
 @app.route('/producto/nuevo', methods=['GET', 'POST'])
 def gestionar_nuevo_producto():
-    # ... (sin cambios) ...
     form_data = request.form if request.method == 'POST' else {}
     if request.method == 'POST':
         codigo_producto = request.form.get('codigo_producto', '').strip().upper()
@@ -149,7 +148,6 @@ def gestionar_nuevo_producto():
 
 @app.route('/sucursal/nueva', methods=['GET', 'POST'])
 def gestionar_nueva_sucursal():
-    # ... (sin cambios) ...
     form_data = request.form if request.method == 'POST' else {}
     if request.method == 'POST':
         id_sucursal = request.form.get('id_sucursal', '').strip().upper()
@@ -180,7 +178,6 @@ def gestionar_nueva_sucursal():
 
 @app.route('/sucursales', methods=['GET'])
 def gestionar_sucursales_maestras():
-    """Muestra la lista de todas las sucursales maestras con opción de editar."""
     sucursales = []
     try:
         response = requests.get(f"{API_BASE_URL}/sucursales_maestras", timeout=5)
@@ -198,11 +195,8 @@ def gestionar_sucursales_maestras():
 
 @app.route('/sucursal/<string:id_sucursal>/editar', methods=['GET', 'POST'])
 def editar_sucursal_maestra(id_sucursal):
-    """Muestra el formulario para editar una sucursal y procesa la actualización."""
     id_sucursal_upper = id_sucursal.upper()
     sucursal_actual = None
-
-    # Para GET, obtener datos de la sucursal para poblar el formulario
     if request.method == 'GET':
         try:
             response = requests.get(f"{API_BASE_URL}/sucursal/{id_sucursal_upper}", timeout=5)
@@ -219,28 +213,23 @@ def editar_sucursal_maestra(id_sucursal):
             flash("Error de conexión al cargar la sucursal.", "danger")
             return redirect(url_for('gestionar_sucursales_maestras'))
 
-    # Para POST, procesar la actualización
     if request.method == 'POST':
         nuevo_nombre_sucursal = request.form.get('nombre_sucursal', '').strip()
         if not nuevo_nombre_sucursal:
             flash("El nuevo nombre de la sucursal es obligatorio.", "warning")
-            # Necesitamos repoblar sucursal_actual si hay un error para que el formulario se muestre bien
-            # Si no se pudo obtener antes (en GET), sucursal_actual será None.
-            # Es mejor obtenerlo de nuevo o pasarlo de alguna manera.
-            # Por simplicidad, si falla la validación, se renderiza con los datos del form.
             return render_template('editar_sucursal.html', 
-                                   sucursal={"id_sucursal": id_sucursal_upper, "nombre_sucursal": nuevo_nombre_sucursal}, # Usar datos del form
+                                   sucursal={"id_sucursal": id_sucursal_upper, "nombre_sucursal": nuevo_nombre_sucursal}, 
                                    current_year=get_current_year())
         
         payload = {"nombre_sucursal": nuevo_nombre_sucursal}
         try:
             api_url = f"{API_BASE_URL}/sucursal/{id_sucursal_upper}"
-            response = requests.put(api_url, json=payload) # Usar método PUT
+            response = requests.put(api_url, json=payload) 
 
             if response.status_code == 200:
                 flash(f"Sucursal '{id_sucursal_upper}' actualizada exitosamente a '{nuevo_nombre_sucursal}'.", "success")
                 return redirect(url_for('gestionar_sucursales_maestras'))
-            elif response.status_code == 409: # Conflicto por nombre duplicado
+            elif response.status_code == 409: 
                 flash(response.json().get("error", "Error: Nombre de sucursal duplicado."), "error")
             elif response.status_code == 404:
                  flash(f"Sucursal '{id_sucursal_upper}' no encontrada para actualizar.", "error")
@@ -250,20 +239,107 @@ def editar_sucursal_maestra(id_sucursal):
         except requests.exceptions.RequestException as e:
             flash(f"Error de conexión con la API al actualizar sucursal: {e}", "danger")
         
-        # Si hay error, volver a renderizar el formulario con los datos del form
         return render_template('editar_sucursal.html', 
                                sucursal={"id_sucursal": id_sucursal_upper, "nombre_sucursal": nuevo_nombre_sucursal}, 
                                current_year=get_current_year())
 
-    # Para GET, si sucursal_actual se obtuvo correctamente
     if sucursal_actual:
         return render_template('editar_sucursal.html', 
                                sucursal=sucursal_actual, 
                                current_year=get_current_year())
     else:
-        # Si sucursal_actual es None después de un intento fallido de GET, redirigir.
-        # Esto no debería pasar si el manejo de errores en GET funciona.
         return redirect(url_for('gestionar_sucursales_maestras'))
+
+# --- Nueva Ruta para Editar Productos ---
+@app.route('/producto/<string:codigo_producto>/editar', methods=['GET', 'POST'])
+def editar_producto(codigo_producto):
+    codigo_producto_upper = codigo_producto.upper()
+    producto_actual = None
+
+    if request.method == 'POST':
+        nuevo_nombre = request.form.get('nombre_producto', '').strip()
+        stock_casa_matriz_str = request.form.get('stock_casa_matriz')
+
+        payload = {}
+        if nuevo_nombre:
+            payload['nombre_producto'] = nuevo_nombre
+        
+        if stock_casa_matriz_str is not None and stock_casa_matriz_str.strip() != '':
+            try:
+                stock_casa_matriz_val = int(stock_casa_matriz_str)
+                if stock_casa_matriz_val < 0:
+                    flash("El stock en casa matriz no puede ser negativo.", "warning")
+                    # Necesitamos obtener los datos del producto para repoblar el formulario
+                    try:
+                        res = requests.get(f"{API_BASE_URL}/producto/{codigo_producto_upper}", timeout=3)
+                        if res.status_code == 200: producto_actual = res.json()
+                    except: pass
+                    return render_template('editar_producto.html', producto=producto_actual, current_year=get_current_year())
+                payload['stock_casa_matriz'] = stock_casa_matriz_val
+            except ValueError:
+                flash("El stock en casa matriz debe ser un número entero válido.", "warning")
+                try:
+                    res = requests.get(f"{API_BASE_URL}/producto/{codigo_producto_upper}", timeout=3)
+                    if res.status_code == 200: producto_actual = res.json()
+                except: pass
+                return render_template('editar_producto.html', producto=producto_actual, current_year=get_current_year())
+        
+        if not payload: # Si no se envió ni nombre ni stock para actualizar
+            flash("No se proporcionaron datos para actualizar.", "info")
+            return redirect(url_for('editar_producto', codigo_producto=codigo_producto_upper))
+
+        try:
+            api_url = f"{API_BASE_URL}/producto/{codigo_producto_upper}"
+            response = requests.put(api_url, json=payload)
+
+            if response.status_code == 200:
+                flash(f"Producto '{codigo_producto_upper}' actualizado exitosamente.", "success")
+                return redirect(url_for('buscar_producto_redirect', codigo_producto=codigo_producto_upper))
+            elif response.status_code == 404:
+                flash(f"Producto '{codigo_producto_upper}' no encontrado para actualizar.", "error")
+            else:
+                error_msg = response.json().get("error", "Error desconocido de la API.")
+                flash(f"Error al actualizar producto (API {response.status_code}): {error_msg}", "error")
+        except requests.exceptions.RequestException as e:
+            flash(f"Error de conexión con la API al actualizar producto: {e}", "danger")
+        
+        # Si hay error, volver a renderizar con los datos que se intentaron enviar
+        # y los datos originales del producto si se pudieron cargar.
+        try:
+            res = requests.get(f"{API_BASE_URL}/producto/{codigo_producto_upper}", timeout=3)
+            if res.status_code == 200: 
+                producto_actual = res.json()
+                # Sobrescribir con los datos del formulario para que el usuario vea lo que ingresó
+                if nuevo_nombre: producto_actual['nombre_producto'] = nuevo_nombre
+                if 'stock_casa_matriz' in payload : producto_actual['stock_casa_matriz'] = payload['stock_casa_matriz']
+        except: pass
+        return render_template('editar_producto.html', producto=producto_actual, current_year=get_current_year())
+
+    # Método GET: Obtener datos del producto para poblar el formulario
+    try:
+        response = requests.get(f"{API_BASE_URL}/producto/{codigo_producto_upper}", timeout=5)
+        if response.status_code == 200:
+            producto_actual = response.json()
+            # El endpoint GET /api/producto/<codigo> ya devuelve nombre y stock_casa_matriz
+            if not producto_actual.get('codigo_producto'): # Doble chequeo
+                 flash(f"Datos incompletos recibidos de la API para el producto '{codigo_producto_upper}'.", "error")
+                 return redirect(url_for('pagina_inicio'))
+        elif response.status_code == 404:
+            flash(f"Producto con código '{codigo_producto_upper}' no encontrado.", "error")
+            return redirect(url_for('pagina_inicio'))
+        else:
+            flash(f"Error al cargar datos del producto (API: {response.status_code}).", "error")
+            return redirect(url_for('pagina_inicio'))
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Error de conexión/API al obtener producto {codigo_producto_upper} para editar: {e}")
+        flash("Error de conexión al cargar el producto.", "danger")
+        return redirect(url_for('pagina_inicio'))
+
+    if producto_actual:
+        return render_template('editar_producto.html', producto=producto_actual, current_year=get_current_year())
+    else:
+        # Si producto_actual sigue siendo None después de intentar obtenerlo.
+        return redirect(url_for('pagina_inicio'))
 
 
 @app.route('/producto/asignar_sucursal', methods=['GET', 'POST'])

@@ -23,7 +23,29 @@
         }
         .product-item-calc:hover {
             background-color: #374151; /* gray-700 */
-            cursor: pointer;
+        }
+        .product-action-button {
+            padding: 0.3rem 0.6rem;
+            font-size: 0.75rem; /* text-xs */
+            border-radius: 0.375rem; /* rounded-md */
+            transition: background-color 0.2s ease-in-out;
+            border: 1px solid transparent;
+        }
+        .btn-quitar {
+            background-color: #dc2626; /* red-600 */
+            border-color: #ef4444; /* red-500 */
+            color: white;
+        }
+        .btn-quitar:hover {
+            background-color: #b91c1c; /* red-700 */
+        }
+        .btn-retornar {
+            background-color: #16a34a; /* green-600 */
+            border-color: #22c55e; /* green-500 */
+            color: white;
+        }
+        .btn-retornar:hover {
+            background-color: #15803d; /* green-700 */
         }
     </style>
 </head>
@@ -85,16 +107,24 @@
                     </h2>
                     {% if productos_de_sucursal %}
                         <div class="max-h-[45vh] overflow-y-auto mb-6">
-                            <ul class="space-y-2">
+                            <ul class="space-y-3"> {# Aumentado el espacio entre items #}
                                 {% for prod in productos_de_sucursal %}
-                                <li class="product-item-calc bg-slate-600/70 p-3 rounded-md hover:bg-slate-600 transition-colors"
-                                    data-codigo="{{ prod.codigo_producto }}" 
-                                    data-nombre="{{ prod.nombre_producto }}"
-                                    data-precio="{{ prod.precio_local }}"
-                                    onclick="seleccionarProductoParaCalculadora(this)">
-                                    <div class="flex justify-between items-center">
-                                        <span class="font-semibold text-sky-300">{{ prod.nombre_producto }} ({{ prod.codigo_producto }})</span>
-                                        <span class="text-xs px-2 py-0.5 rounded-full 
+                                <li class="product-item-calc bg-slate-600/70 p-3 rounded-md hover:bg-slate-600 transition-colors">
+                                    <div class="flex justify-between items-start">
+                                        <div>
+                                            <span class="font-semibold text-sky-300 block cursor-pointer"
+                                                  onclick="seleccionarProductoParaCalculadora(this)"
+                                                  data-codigo="{{ prod.codigo_producto }}" 
+                                                  data-nombre="{{ prod.nombre_producto }}"
+                                                  data-precio="{{ prod.precio_local }}"
+                                                  title="Seleccionar para calculadora">
+                                                {{ prod.nombre_producto }} ({{ prod.codigo_producto }})
+                                            </span>
+                                            <p class="text-sm text-slate-300 mt-0.5">
+                                                Precio: {{ "${:,.2f}".format(prod.precio_local).replace(",", "X").replace(".", ",").replace("X", ".") }} CLP
+                                            </p>
+                                        </div>
+                                        <span class="text-xs px-2 py-0.5 rounded-full whitespace-nowrap
                                             {% if prod.cantidad > 10 %}bg-green-600/70 text-green-200
                                             {% elif prod.cantidad > 0 %}bg-yellow-600/70 text-yellow-200
                                             {% else %}bg-red-600/70 text-red-200
@@ -102,9 +132,21 @@
                                             Stock: {{ prod.cantidad }}
                                         </span>
                                     </div>
-                                    <p class="text-sm text-slate-300 mt-1">
-                                        Precio: {{ "${:,.2f}".format(prod.precio_local).replace(",", "X").replace(".", ",").replace("X", ".") }} CLP
-                                    </p>
+                                    {# Nuevos botones de acción para cada producto #}
+                                    <div class="mt-2 pt-2 border-t border-slate-500/50 flex justify-end space-x-2">
+                                        <form action="{{ url_for('retornar_stock_a_matriz_app', id_sucursal=sucursal_seleccionada.id_sucursal, codigo_producto=prod.codigo_producto) }}" method="POST" class="inline-block"
+                                              onsubmit="return confirm('¿Estás seguro de que deseas retornar el stock de {{ prod.nombre_producto }} ({{ prod.cantidad }} unidades) a la casa matriz?');">
+                                            <button type="submit" class="product-action-button btn-retornar" title="Retornar stock a casa matriz">
+                                                <i class="fas fa-undo-alt mr-1"></i> Retornar
+                                            </button>
+                                        </form>
+                                        <form action="{{ url_for('quitar_producto_de_sucursal_app', id_sucursal=sucursal_seleccionada.id_sucursal, codigo_producto=prod.codigo_producto) }}" method="POST" class="inline-block"
+                                              onsubmit="return confirm('ADVERTENCIA: Esta acción quitará {{ prod.nombre_producto }} de esta sucursal. El stock en sucursal ({{ prod.cantidad }} unidades) se perderá. ¿Estás seguro?');">
+                                            <button type="submit" class="product-action-button btn-quitar" title="Quitar producto de esta sucursal">
+                                                <i class="fas fa-times-circle mr-1"></i> Quitar
+                                            </button>
+                                        </form>
+                                    </div>
                                 </li>
                                 {% endfor %}
                             </ul>
@@ -118,8 +160,8 @@
                                 Tasa de cambio: 1 USD = {{ "{:,.2f}".format(tasa_cambio_a_usd) }} CLP
                             </p>
                             <div class="mb-2">
-                                <label for="producto_calculadora" class="block text-sm font-medium text-green-200 mb-1">Producto Seleccionado:</label>
-                                <input type="text" id="producto_calculadora_nombre" class="bg-slate-700 border border-slate-500 text-gray-100 text-sm rounded-lg w-full p-2 placeholder-slate-400" readonly placeholder="Seleccione un producto de la lista">
+                                <label for="producto_calculadora_nombre" class="block text-sm font-medium text-green-200 mb-1">Producto Seleccionado:</label>
+                                <input type="text" id="producto_calculadora_nombre" class="bg-slate-700 border border-slate-500 text-gray-100 text-sm rounded-lg w-full p-2 placeholder-slate-400" readonly placeholder="Clic en un producto de la lista">
                                 <input type="hidden" id="producto_calculadora_precio_local">
                             </div>
                             <div class="mb-2">

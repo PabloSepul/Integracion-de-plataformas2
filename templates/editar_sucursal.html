@@ -42,8 +42,8 @@
         {% if sucursal %}
             <form action="{{ url_for('editar_sucursal_maestra', id_sucursal=sucursal.id_sucursal) }}" method="POST" class="space-y-6">
                 <div>
-                    <label for="id_sucursal" class="block text-sm font-medium text-amber-200 mb-1">ID de la Sucursal (No editable)</label>
-                    <input type="text" id="id_sucursal" name="id_sucursal_display"
+                    <label for="id_sucursal_display" class="block text-sm font-medium text-amber-200 mb-1">ID de la Sucursal (No editable)</label>
+                    <input type="text" id="id_sucursal_display" name="id_sucursal_display"
                            class="bg-slate-700 border border-slate-600 text-gray-400 text-sm rounded-lg block w-full p-3"
                            value="{{ sucursal.id_sucursal }}" readonly>
                 </div>

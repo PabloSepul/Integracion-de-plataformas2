@@ -2,11 +2,11 @@ from flask import Flask, jsonify, request
 import requests 
 import sqlite3 
 import os
-import logging # Importar logging
+import logging 
 
 app = Flask(__name__)
 
-# Configurar logging para la aplicación Flask
+# Configurar logging al inicio
 if not app.debug: 
     logging.basicConfig(level=logging.INFO)
     app.logger.setLevel(logging.INFO)
@@ -20,11 +20,13 @@ EXCHANGE_RATE_API_KEY = "b13c1920a6582926f6d00078"
 DEFAULT_TASA_CAMBIO_USD_CLP = 980.0 
 
 def get_db_connection():
-    conn = sqlite3.connect(DATABASE_FILE) # No es necesario check_same_thread=False si no hay SSE activos
+    """Establece y devuelve una conexión a la base de datos SQLite."""
+    conn = sqlite3.connect(DATABASE_FILE) 
     conn.row_factory = sqlite3.Row 
     return conn
 
 def init_db():
+    """Inicializa la base de datos: crea las tablas si no existen y puebla sucursales."""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
@@ -69,7 +71,7 @@ def init_db():
 
 def obtener_tasa_cambio_actual_usd_clp():
     moneda_local_iso = "CLP"
-    if not EXCHANGE_RATE_API_KEY or EXCHANGE_RATE_API_KEY == "TU_API_KEY_AQUI":
+    if not EXCHANGE_RATE_API_KEY or EXCHANGE_RATE_API_KEY == "TU_API_KEY_AQUI": # Placeholder
         app.logger.error("API Key para ExchangeRate-API no configurada. Usando valor por defecto.")
         return DEFAULT_TASA_CAMBIO_USD_CLP
     api_url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/latest/USD"
@@ -100,11 +102,13 @@ def obtener_info_producto(codigo_producto):
     producto_codigo_upper = codigo_producto.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
+    # Asegurarse de seleccionar todas las columnas necesarias para la edición y visualización
     cursor.execute("SELECT codigo, nombre, stock_casa_matriz FROM productos WHERE codigo = ?", (producto_codigo_upper,))
     producto_db = cursor.fetchone()
     if not producto_db:
         conn.close()
         return jsonify({"error": "Producto no encontrado", "codigo": producto_codigo_upper}), 404
+    
     cursor.execute('''
         SELECT ps.sucursal_id, sm.nombre_sucursal, ps.cantidad, ps.precio_local
         FROM productos_sucursales ps
@@ -113,7 +117,9 @@ def obtener_info_producto(codigo_producto):
     ''', (producto_codigo_upper,))
     sucursales_info = [dict(row) for row in cursor.fetchall()]
     conn.close()
+    
     tasa_actual_usd_clp = obtener_tasa_cambio_actual_usd_clp()
+    
     respuesta = {
         "codigo_producto": producto_db["codigo"], 
         "nombre_producto": producto_db["nombre"],
@@ -127,7 +133,7 @@ def obtener_info_producto(codigo_producto):
 def obtener_todos_los_productos():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT codigo, nombre FROM productos ORDER BY nombre")
+    cursor.execute("SELECT codigo, nombre FROM productos ORDER BY nombre") # Podríamos añadir stock_casa_matriz si fuera útil aquí
     productos_db = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return jsonify(productos_db)
@@ -204,8 +210,87 @@ def crear_producto():
     finally:
         conn.close()
 
+@app.route('/api/producto/<string:codigo_producto>', methods=['PUT'])
+def actualizar_producto(codigo_producto):
+    """Actualiza el nombre y/o el stock de casa matriz de un producto existente."""
+    codigo_producto_upper = codigo_producto.upper()
+    
+    if not request.json:
+        return jsonify({"error": "La solicitud debe ser JSON"}), 400
+
+    nuevo_nombre = request.json.get('nombre_producto', '').strip()
+    stock_casa_matriz_str = request.json.get('stock_casa_matriz') # Puede ser None si no se envía
+
+    if not nuevo_nombre and stock_casa_matriz_str is None:
+        return jsonify({"error": "Se requiere al menos un campo para actualizar (nombre_producto o stock_casa_matriz)"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Verificar si el producto existe
+        cursor.execute("SELECT codigo, nombre, stock_casa_matriz FROM productos WHERE codigo = ?", (codigo_producto_upper,))
+        producto_actual = cursor.fetchone()
+        if not producto_actual:
+            conn.close()
+            return jsonify({"error": "Producto no encontrado para actualizar"}), 404
+
+        # Preparar los campos a actualizar
+        campos_a_actualizar = []
+        valores_a_actualizar = []
+
+        if nuevo_nombre:
+            campos_a_actualizar.append("nombre = ?")
+            valores_a_actualizar.append(nuevo_nombre)
+        
+        nuevo_stock_casa_matriz = None
+        if stock_casa_matriz_str is not None:
+            try:
+                nuevo_stock_casa_matriz = int(stock_casa_matriz_str)
+                if nuevo_stock_casa_matriz < 0:
+                    conn.close()
+                    return jsonify({"error": "El stock en casa matriz no puede ser negativo"}), 400
+                campos_a_actualizar.append("stock_casa_matriz = ?")
+                valores_a_actualizar.append(nuevo_stock_casa_matriz)
+            except ValueError:
+                conn.close()
+                return jsonify({"error": "El stock en casa matriz debe ser un número entero"}), 400
+        
+        if not campos_a_actualizar: # No debería pasar si la validación inicial es correcta
+            conn.close()
+            return jsonify({"error": "No se proporcionaron campos para actualizar"}), 400
+
+        valores_a_actualizar.append(codigo_producto_upper) # Para la cláusula WHERE
+        
+        query_actualizacion = f"UPDATE productos SET {', '.join(campos_a_actualizar)} WHERE codigo = ?"
+        app.logger.debug(f"Query de actualización de producto: {query_actualizacion} con valores {valores_a_actualizar}")
+        
+        cursor.execute(query_actualizacion, tuple(valores_a_actualizar))
+        conn.commit()
+
+        if cursor.rowcount == 0:
+            # Esto es improbable si la selección inicial lo encontró, pero es una salvaguarda
+            conn.close()
+            return jsonify({"error": "Producto no encontrado durante la actualización (no se afectaron filas)"}), 404
+        
+        # Devolver el producto actualizado
+        cursor.execute("SELECT codigo, nombre, stock_casa_matriz FROM productos WHERE codigo = ?", (codigo_producto_upper,))
+        producto_actualizado_db = cursor.fetchone()
+        conn.close()
+
+        app.logger.info(f"Producto '{codigo_producto_upper}' actualizado exitosamente.")
+        return jsonify(dict(producto_actualizado_db)), 200
+
+    except sqlite3.Error as e:
+        conn.rollback()
+        app.logger.error(f"Error de base de datos al actualizar producto: {e}")
+        if conn: conn.close()
+        return jsonify({"error": "Error interno de la base de datos al actualizar el producto"}), 500
+    # No es necesario un finally si conn.close() está en todas las ramas de retorno.
+
+
 @app.route('/api/sucursal', methods=['POST'])
 def crear_sucursal_maestra():
+    # ... (sin cambios) ...
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
     id_sucursal = request.json.get('id_sucursal', '').strip().upper()
@@ -234,18 +319,20 @@ def crear_sucursal_maestra():
 
 @app.route('/api/sucursal/<string:id_sucursal>', methods=['GET'])
 def obtener_info_sucursal(id_sucursal):
+    # ... (sin cambios) ...
     id_sucursal_upper = id_sucursal.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT id_sucursal, nombre_sucursal FROM sucursales_maestras WHERE id_sucursal = ?", (id_sucursal_upper,))
     sucursal_db = cursor.fetchone()
-    conn.close()
+    conn.close() 
     if not sucursal_db:
         return jsonify({"error": "Sucursal no encontrada", "id_sucursal": id_sucursal_upper}), 404
     return jsonify(dict(sucursal_db))
 
 @app.route('/api/sucursal/<string:id_sucursal>', methods=['PUT'])
 def actualizar_sucursal_maestra(id_sucursal):
+    # ... (sin cambios) ...
     id_sucursal_upper = id_sucursal.upper()
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
@@ -259,6 +346,7 @@ def actualizar_sucursal_maestra(id_sucursal):
     try:
         cursor.execute("SELECT id_sucursal FROM sucursales_maestras WHERE id_sucursal = ?", (id_sucursal_upper,))
         if not cursor.fetchone():
+            conn.close()
             return jsonify({"error": "Sucursal no encontrada para actualizar"}), 404
 
         cursor.execute(
@@ -268,22 +356,25 @@ def actualizar_sucursal_maestra(id_sucursal):
         conn.commit()
         
         if cursor.rowcount == 0:
-            return jsonify({"error": "Sucursal no encontrada durante la actualización"}), 404
+            conn.close()
+            return jsonify({"error": "Sucursal no encontrada durante la actualización (no se afectaron filas)"}), 404
 
         sucursal_actualizada = {"id_sucursal": id_sucursal_upper, "nombre_sucursal": nuevo_nombre_sucursal}
         app.logger.info(f"Sucursal '{id_sucursal_upper}' actualizada a nombre '{nuevo_nombre_sucursal}'.")
+        conn.close()
         return jsonify(sucursal_actualizada), 200
     except sqlite3.IntegrityError: 
         app.logger.warning(f"Intento de actualizar sucursal '{id_sucursal_upper}' a un nombre duplicado '{nuevo_nombre_sucursal}'.")
+        if conn: conn.close()
         return jsonify({"error": f"Ya existe otra sucursal con el nombre '{nuevo_nombre_sucursal}'"}), 409
     except Exception as e:
         app.logger.error(f"Error inesperado al actualizar sucursal: {e}")
+        if conn: conn.close()
         return jsonify({"error": "Error interno del servidor al actualizar la sucursal"}), 500
-    finally:
-        conn.close()
 
 @app.route('/api/producto/<string:codigo_producto>/restock_matriz', methods=['POST'])
 def restock_casa_matriz(codigo_producto):
+    # ... (sin cambios) ...
     codigo_producto_upper = codigo_producto.upper()
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
@@ -300,6 +391,7 @@ def restock_casa_matriz(codigo_producto):
         cursor.execute("SELECT stock_casa_matriz FROM productos WHERE codigo = ?", (codigo_producto_upper,))
         producto_db = cursor.fetchone()
         if not producto_db:
+            conn.close() 
             return jsonify({"error": "Producto no encontrado"}), 404
         
         stock_actual = producto_db["stock_casa_matriz"]
@@ -313,6 +405,7 @@ def restock_casa_matriz(codigo_producto):
         
         cursor.execute("SELECT codigo, nombre, stock_casa_matriz FROM productos WHERE codigo = ?", (codigo_producto_upper,))
         producto_actualizado_db = cursor.fetchone()
+        conn.close() 
 
         return jsonify({
             "mensaje": f"Stock de '{codigo_producto_upper}' en casa matriz actualizado a {nuevo_stock}.",
@@ -322,13 +415,12 @@ def restock_casa_matriz(codigo_producto):
     except sqlite3.Error as e:
         conn.rollback()
         app.logger.error(f"Error de base de datos al hacer restock en casa matriz: {e}")
+        if conn: conn.close() 
         return jsonify({"error": "Error interno de la base de datos"}), 500
-    finally:
-        if conn:
-            conn.close()
 
 @app.route('/api/producto/<string:codigo_producto>/sucursal', methods=['POST'])
 def agregar_o_actualizar_producto_en_sucursal(codigo_producto):
+    # ... (sin cambios) ...
     codigo_producto_upper = codigo_producto.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -336,22 +428,31 @@ def agregar_o_actualizar_producto_en_sucursal(codigo_producto):
         cursor.execute("SELECT codigo, nombre, stock_casa_matriz FROM productos WHERE codigo = ?", (codigo_producto_upper,))
         producto_db = cursor.fetchone()
         if not producto_db:
+            conn.close()
             return jsonify({"error": "Producto no encontrado"}), 404
         
         stock_anterior_casa_matriz = producto_db["stock_casa_matriz"]
         
-        if not request.json: return jsonify({"error": "La solicitud debe ser JSON"}), 400
+        if not request.json: 
+            conn.close()
+            return jsonify({"error": "La solicitud debe ser JSON"}), 400
         id_sucursal = request.json.get('id_sucursal', '').strip().upper()
         try:
             nueva_cantidad_sucursal = int(request.json.get('cantidad'))
             precio_local = float(request.json.get('precio_local'))
             if nueva_cantidad_sucursal < 0 or precio_local < 0:
+                conn.close()
                 return jsonify({"error": "La cantidad y el precio no pueden ser negativos"}), 400
         except (ValueError, TypeError):
+            conn.close()
             return jsonify({"error": "La cantidad debe ser un entero y el precio local un número válido"}), 400
-        if not id_sucursal: return jsonify({"error": "El ID de sucursal es requerido"}), 400
+        if not id_sucursal: 
+            conn.close()
+            return jsonify({"error": "El ID de sucursal es requerido"}), 400
         cursor.execute("SELECT id_sucursal FROM sucursales_maestras WHERE id_sucursal = ?", (id_sucursal,))
-        if not cursor.fetchone(): return jsonify({"error": f"El ID de sucursal '{id_sucursal}' no es válido."}), 400
+        if not cursor.fetchone(): 
+            conn.close()
+            return jsonify({"error": f"El ID de sucursal '{id_sucursal}' no es válido."}), 400
 
         cantidad_anterior_sucursal = 0
         cursor.execute("SELECT cantidad FROM productos_sucursales WHERE producto_codigo = ? AND sucursal_id = ?", (codigo_producto_upper, id_sucursal))
@@ -362,6 +463,7 @@ def agregar_o_actualizar_producto_en_sucursal(codigo_producto):
         nuevo_stock_casa_matriz = stock_anterior_casa_matriz - diferencia_stock_movido
 
         if nuevo_stock_casa_matriz < 0:
+            conn.close()
             return jsonify({
                 "error": "Stock insuficiente en casa matriz.",
                 "stock_disponible_casa_matriz": stock_anterior_casa_matriz,
@@ -389,6 +491,7 @@ def agregar_o_actualizar_producto_en_sucursal(codigo_producto):
             WHERE ps.producto_codigo = ?
         ''', (codigo_producto_upper,))
         sucursales_info_actualizadas = [dict(row) for row in cursor.fetchall()]
+        conn.close()
         
         producto_respuesta = {
             "codigo_producto": producto_db_actualizado["codigo"], 
@@ -401,9 +504,97 @@ def agregar_o_actualizar_producto_en_sucursal(codigo_producto):
     except sqlite3.Error as e:
         conn.rollback() 
         app.logger.error(f"Error de base de datos al asignar producto a sucursal: {e}")
-        return jsonify({"error": "Error interno de la base de datos"}), 500
-    finally:
         if conn: conn.close()
+        return jsonify({"error": "Error interno de la base de datos"}), 500
+
+@app.route('/api/sucursal/<string:id_sucursal>/producto/<string:codigo_producto>/quitar', methods=['POST'])
+def quitar_producto_de_sucursal(id_sucursal, codigo_producto):
+    # ... (sin cambios) ...
+    id_sucursal_upper = id_sucursal.upper()
+    codigo_producto_upper = codigo_producto.upper()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT 1 FROM productos_sucursales WHERE producto_codigo = ? AND sucursal_id = ?",
+            (codigo_producto_upper, id_sucursal_upper)
+        )
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({"error": "Producto no encontrado en esta sucursal"}), 404
+
+        cursor.execute(
+            "DELETE FROM productos_sucursales WHERE producto_codigo = ? AND sucursal_id = ?",
+            (codigo_producto_upper, id_sucursal_upper)
+        )
+        conn.commit()
+        
+        if cursor.rowcount > 0:
+            app.logger.info(f"Producto '{codigo_producto_upper}' quitado de sucursal '{id_sucursal_upper}'.")
+            conn.close()
+            return jsonify({"mensaje": f"Producto '{codigo_producto_upper}' quitado de la sucursal '{id_sucursal_upper}'."}), 200
+        else:
+            conn.close()
+            return jsonify({"error": "Producto no se pudo quitar de la sucursal (no se afectaron filas)"}), 400 
+            
+    except sqlite3.Error as e:
+        conn.rollback()
+        app.logger.error(f"Error de BD al quitar producto de sucursal: {e}")
+        if conn: conn.close()
+        return jsonify({"error": "Error interno de base de datos"}), 500
+
+@app.route('/api/sucursal/<string:id_sucursal>/producto/<string:codigo_producto>/retornar_stock', methods=['POST'])
+def retornar_stock_a_matriz(id_sucursal, codigo_producto):
+    # ... (sin cambios) ...
+    id_sucursal_upper = id_sucursal.upper()
+    codigo_producto_upper = codigo_producto.upper()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT cantidad FROM productos_sucursales WHERE producto_codigo = ? AND sucursal_id = ?",
+            (codigo_producto_upper, id_sucursal_upper)
+        )
+        producto_en_sucursal = cursor.fetchone()
+        if not producto_en_sucursal:
+            conn.close()
+            return jsonify({"error": "Producto no encontrado en esta sucursal para retornar stock"}), 404
+        
+        cantidad_en_sucursal = producto_en_sucursal["cantidad"]
+
+        cursor.execute(
+            "SELECT stock_casa_matriz FROM productos WHERE codigo = ?",
+            (codigo_producto_upper,)
+        )
+        producto_matriz = cursor.fetchone()
+        if not producto_matriz: 
+            conn.close()
+            return jsonify({"error": "Producto no encontrado en casa matriz (inconsistencia de datos)"}), 500
+        
+        stock_actual_casa_matriz = producto_matriz["stock_casa_matriz"]
+        nuevo_stock_casa_matriz = stock_actual_casa_matriz + cantidad_en_sucursal
+
+        cursor.execute(
+            "UPDATE productos SET stock_casa_matriz = ? WHERE codigo = ?",
+            (nuevo_stock_casa_matriz, codigo_producto_upper)
+        )
+        cursor.execute(
+            "DELETE FROM productos_sucursales WHERE producto_codigo = ? AND sucursal_id = ?",
+            (codigo_producto_upper, id_sucursal_upper)
+        )
+        conn.commit()
+        
+        app.logger.info(f"Stock de producto '{codigo_producto_upper}' ({cantidad_en_sucursal} unidades) retornado de sucursal '{id_sucursal_upper}' a casa matriz.")
+        conn.close()
+        return jsonify({
+            "mensaje": f"{cantidad_en_sucursal} unidades de '{codigo_producto_upper}' retornadas a casa matriz desde sucursal '{id_sucursal_upper}'. Nuevo stock matriz: {nuevo_stock_casa_matriz}."
+        }), 200
+            
+    except sqlite3.Error as e:
+        conn.rollback()
+        app.logger.error(f"Error de BD al retornar stock a matriz: {e}")
+        if conn: conn.close()
+        return jsonify({"error": "Error interno de base de datos"}), 500
 
 if __name__ == '__main__':
     import logging 
@@ -420,4 +611,4 @@ if __name__ == '__main__':
     init_db() 
     app.logger.info(f"Base de datos '{DATABASE_FILE}' inicializada y lista para usarse.")
     
-    app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False, threaded=True)
+    app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False)
