@@ -54,7 +54,7 @@
     <div class="container mx-auto max-w-7xl bg-slate-800 shadow-2xl rounded-xl p-4 md:p-8">
         <div class="text-center mb-6 md:mb-8">
             <i class="fas fa-landmark text-5xl text-sky-400 mb-3"></i>
-            <h1 class="text-3xl md:text-4xl font-bold tracking-tight text-sky-300">Explorador de Inventario por Sucursal</h1>
+            <h1 class="text-3xl md:text-4xl font-bold tracking-tight text-sky-300">Explorador y Gestión de Inventario</h1>
         </div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -97,6 +97,11 @@
                        class="w-full flex items-center justify-center text-sm bg-purple-600 hover:bg-purple-700 text-white font-medium py-2.5 px-3 rounded-md transition duration-300">
                         <i class="fas fa-cogs mr-2"></i>Gestionar Sucursales
                     </a>
+                    {# Nuevo Enlace a la Tienda de Concepción #}
+                    <a href="{{ url_for('tienda_sucursal', id_sucursal=id_sucursal_tienda_default) }}"
+                       class="w-full flex items-center justify-center text-sm bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 px-3 rounded-md transition duration-300">
+                        <i class="fas fa-shopping-bag mr-2"></i>Tienda Concepción
+                    </a>
                 </div>
             </div>
 
@@ -107,7 +112,7 @@
                     </h2>
                     {% if productos_de_sucursal %}
                         <div class="max-h-[45vh] overflow-y-auto mb-6">
-                            <ul class="space-y-3"> {# Aumentado el espacio entre items #}
+                            <ul class="space-y-3"> 
                                 {% for prod in productos_de_sucursal %}
                                 <li class="product-item-calc bg-slate-600/70 p-3 rounded-md hover:bg-slate-600 transition-colors">
                                     <div class="flex justify-between items-start">
@@ -132,7 +137,6 @@
                                             Stock: {{ prod.cantidad }}
                                         </span>
                                     </div>
-                                    {# Nuevos botones de acción para cada producto #}
                                     <div class="mt-2 pt-2 border-t border-slate-500/50 flex justify-end space-x-2">
                                         <form action="{{ url_for('retornar_stock_a_matriz_app', id_sucursal=sucursal_seleccionada.id_sucursal, codigo_producto=prod.codigo_producto) }}" method="POST" class="inline-block"
                                               onsubmit="return confirm('¿Estás seguro de que deseas retornar el stock de {{ prod.nombre_producto }} ({{ prod.cantidad }} unidades) a la casa matriz?');">

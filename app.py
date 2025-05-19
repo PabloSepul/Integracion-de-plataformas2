@@ -15,6 +15,7 @@ else:
 
 API_BASE_URL = "http://127.0.0.1:5001/api"
 DEFAULT_TASA_CAMBIO_USD_CLP = 980.0 
+ID_SUCURSAL_TIENDA = "S03" # Asumimos que Concepción es S03
 
 def get_current_year():
     return datetime.datetime.now().year
@@ -75,11 +76,13 @@ def pagina_inicio():
                            productos_de_sucursal=productos_de_sucursal_seleccionada,
                            sucursal_seleccionada=sucursal_seleccionada_info,
                            tasa_cambio_a_usd=tasa_cambio,
-                           productos_existentes=productos_existentes_para_lista_general
+                           productos_existentes=productos_existentes_para_lista_general,
+                           id_sucursal_tienda_default=ID_SUCURSAL_TIENDA 
                            )
 
 @app.route('/buscar', methods=['POST'])
 def buscar_producto():
+    # ... (sin cambios) ...
     codigo_producto_buscado = request.form.get('codigo_producto', '').strip().upper()
     if not codigo_producto_buscado:
         flash("Por favor, ingrese un código de producto.", "warning")
@@ -111,6 +114,7 @@ def buscar_producto():
 
 @app.route('/producto/nuevo', methods=['GET', 'POST'])
 def gestionar_nuevo_producto():
+    # ... (sin cambios) ...
     form_data = request.form if request.method == 'POST' else {}
     if request.method == 'POST':
         codigo_producto = request.form.get('codigo_producto', '').strip().upper()
@@ -148,6 +152,7 @@ def gestionar_nuevo_producto():
 
 @app.route('/sucursal/nueva', methods=['GET', 'POST'])
 def gestionar_nueva_sucursal():
+    # ... (sin cambios) ...
     form_data = request.form if request.method == 'POST' else {}
     if request.method == 'POST':
         id_sucursal = request.form.get('id_sucursal', '').strip().upper()
@@ -178,6 +183,7 @@ def gestionar_nueva_sucursal():
 
 @app.route('/sucursales', methods=['GET'])
 def gestionar_sucursales_maestras():
+    # ... (sin cambios) ...
     sucursales = []
     try:
         response = requests.get(f"{API_BASE_URL}/sucursales_maestras", timeout=5)
@@ -195,6 +201,7 @@ def gestionar_sucursales_maestras():
 
 @app.route('/sucursal/<string:id_sucursal>/editar', methods=['GET', 'POST'])
 def editar_sucursal_maestra(id_sucursal):
+    # ... (sin cambios) ...
     id_sucursal_upper = id_sucursal.upper()
     sucursal_actual = None
     if request.method == 'GET':
@@ -250,26 +257,22 @@ def editar_sucursal_maestra(id_sucursal):
     else:
         return redirect(url_for('gestionar_sucursales_maestras'))
 
-# --- Nueva Ruta para Editar Productos ---
 @app.route('/producto/<string:codigo_producto>/editar', methods=['GET', 'POST'])
 def editar_producto(codigo_producto):
+    # ... (sin cambios) ...
     codigo_producto_upper = codigo_producto.upper()
     producto_actual = None
-
     if request.method == 'POST':
         nuevo_nombre = request.form.get('nombre_producto', '').strip()
         stock_casa_matriz_str = request.form.get('stock_casa_matriz')
-
         payload = {}
         if nuevo_nombre:
             payload['nombre_producto'] = nuevo_nombre
-        
         if stock_casa_matriz_str is not None and stock_casa_matriz_str.strip() != '':
             try:
                 stock_casa_matriz_val = int(stock_casa_matriz_str)
                 if stock_casa_matriz_val < 0:
                     flash("El stock en casa matriz no puede ser negativo.", "warning")
-                    # Necesitamos obtener los datos del producto para repoblar el formulario
                     try:
                         res = requests.get(f"{API_BASE_URL}/producto/{codigo_producto_upper}", timeout=3)
                         if res.status_code == 200: producto_actual = res.json()
@@ -283,15 +286,12 @@ def editar_producto(codigo_producto):
                     if res.status_code == 200: producto_actual = res.json()
                 except: pass
                 return render_template('editar_producto.html', producto=producto_actual, current_year=get_current_year())
-        
-        if not payload: # Si no se envió ni nombre ni stock para actualizar
+        if not payload:
             flash("No se proporcionaron datos para actualizar.", "info")
             return redirect(url_for('editar_producto', codigo_producto=codigo_producto_upper))
-
         try:
             api_url = f"{API_BASE_URL}/producto/{codigo_producto_upper}"
             response = requests.put(api_url, json=payload)
-
             if response.status_code == 200:
                 flash(f"Producto '{codigo_producto_upper}' actualizado exitosamente.", "success")
                 return redirect(url_for('buscar_producto_redirect', codigo_producto=codigo_producto_upper))
@@ -302,26 +302,19 @@ def editar_producto(codigo_producto):
                 flash(f"Error al actualizar producto (API {response.status_code}): {error_msg}", "error")
         except requests.exceptions.RequestException as e:
             flash(f"Error de conexión con la API al actualizar producto: {e}", "danger")
-        
-        # Si hay error, volver a renderizar con los datos que se intentaron enviar
-        # y los datos originales del producto si se pudieron cargar.
         try:
             res = requests.get(f"{API_BASE_URL}/producto/{codigo_producto_upper}", timeout=3)
             if res.status_code == 200: 
                 producto_actual = res.json()
-                # Sobrescribir con los datos del formulario para que el usuario vea lo que ingresó
                 if nuevo_nombre: producto_actual['nombre_producto'] = nuevo_nombre
                 if 'stock_casa_matriz' in payload : producto_actual['stock_casa_matriz'] = payload['stock_casa_matriz']
         except: pass
         return render_template('editar_producto.html', producto=producto_actual, current_year=get_current_year())
-
-    # Método GET: Obtener datos del producto para poblar el formulario
     try:
         response = requests.get(f"{API_BASE_URL}/producto/{codigo_producto_upper}", timeout=5)
         if response.status_code == 200:
             producto_actual = response.json()
-            # El endpoint GET /api/producto/<codigo> ya devuelve nombre y stock_casa_matriz
-            if not producto_actual.get('codigo_producto'): # Doble chequeo
+            if not producto_actual.get('codigo_producto'):
                  flash(f"Datos incompletos recibidos de la API para el producto '{codigo_producto_upper}'.", "error")
                  return redirect(url_for('pagina_inicio'))
         elif response.status_code == 404:
@@ -334,13 +327,10 @@ def editar_producto(codigo_producto):
         app.logger.error(f"Error de conexión/API al obtener producto {codigo_producto_upper} para editar: {e}")
         flash("Error de conexión al cargar el producto.", "danger")
         return redirect(url_for('pagina_inicio'))
-
     if producto_actual:
         return render_template('editar_producto.html', producto=producto_actual, current_year=get_current_year())
     else:
-        # Si producto_actual sigue siendo None después de intentar obtenerlo.
         return redirect(url_for('pagina_inicio'))
-
 
 @app.route('/producto/asignar_sucursal', methods=['GET', 'POST'])
 @app.route('/producto/<string:codigo_producto_param>/asignar_sucursal', methods=['GET', 'POST'])
@@ -460,6 +450,114 @@ def pagina_restock_casa_matriz():
                            productos=productos_api,
                            current_year=get_current_year(),
                            form_data={})
+
+@app.route('/sucursal/<string:id_sucursal>/producto/<string:codigo_producto>/quitar', methods=['POST'])
+def quitar_producto_de_sucursal_app(id_sucursal, codigo_producto):
+    # ... (sin cambios) ...
+    try:
+        api_url = f"{API_BASE_URL}/sucursal/{id_sucursal.upper()}/producto/{codigo_producto.upper()}/quitar"
+        response = requests.post(api_url)
+
+        if response.status_code == 200:
+            flash(response.json().get("mensaje", f"Producto {codigo_producto} quitado de la sucursal."), "success")
+        elif response.status_code == 404:
+            flash(f"Producto {codigo_producto} o sucursal {id_sucursal} no encontrados.", "error")
+        else:
+            error_msg = response.json().get("error", "Error desconocido.")
+            flash(f"Error al quitar producto de sucursal (API {response.status_code}): {error_msg}", "error")
+            
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Error de conexión/API al quitar producto de sucursal: {e}")
+        flash("Error de conexión al quitar producto de la sucursal.", "danger")
+    
+    return redirect(url_for('pagina_inicio', sucursal_id=id_sucursal))
+
+@app.route('/sucursal/<string:id_sucursal>/producto/<string:codigo_producto>/retornar', methods=['POST'])
+def retornar_stock_a_matriz_app(id_sucursal, codigo_producto):
+    # ... (sin cambios) ...
+    try:
+        api_url = f"{API_BASE_URL}/sucursal/{id_sucursal.upper()}/producto/{codigo_producto.upper()}/retornar_stock"
+        response = requests.post(api_url)
+
+        if response.status_code == 200:
+            flash(response.json().get("mensaje", f"Stock del producto {codigo_producto} retornado a casa matriz."), "success")
+        elif response.status_code == 404:
+            flash(f"Producto {codigo_producto} o sucursal {id_sucursal} no encontrados para retornar stock.", "error")
+        else:
+            error_msg = response.json().get("error", "Error desconocido.")
+            flash(f"Error al retornar stock (API {response.status_code}): {error_msg}", "error")
+            
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Error de conexión/API al retornar stock: {e}")
+        flash("Error de conexión al retornar stock.", "danger")
+        
+    return redirect(url_for('pagina_inicio', sucursal_id=id_sucursal))
+
+# --- Nuevas Rutas para la Tienda Online de Sucursal ---
+@app.route('/tienda/sucursal/<string:id_sucursal>')
+def tienda_sucursal(id_sucursal):
+    """Muestra los productos disponibles para la 'compra' en una sucursal específica."""
+    id_sucursal_upper = id_sucursal.upper()
+    datos_tienda = None
+    error_api = None
+
+    try:
+        api_url = f"{API_BASE_URL}/sucursal/{id_sucursal_upper}/productos" # Reutiliza el endpoint existente
+        response = requests.get(api_url, timeout=5)
+        if response.status_code == 200:
+            datos_tienda = response.json()
+            # Filtrar productos con stock > 0 para la tienda
+            if datos_tienda and "productos" in datos_tienda:
+                datos_tienda["productos"] = [p for p in datos_tienda["productos"] if p.get("cantidad", 0) > 0]
+        elif response.status_code == 404:
+            flash(f"Sucursal '{id_sucursal_upper}' no encontrada para la tienda.", "warning")
+            return redirect(url_for('pagina_inicio'))
+        else:
+            error_api = f"Error al cargar productos de la tienda (API: {response.status_code})."
+            flash(error_api, "danger")
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Error de conexión/API al obtener productos para tienda de sucursal {id_sucursal_upper}: {e}")
+        error_api = "Error de conexión al cargar productos de la tienda."
+        flash(error_api, "danger")
+
+    return render_template('tienda_sucursal.html',
+                           datos_tienda=datos_tienda,
+                           id_sucursal_tienda=id_sucursal_upper, # Pasar el ID para los formularios
+                           current_year=get_current_year(),
+                           error_api=error_api)
+
+@app.route('/tienda/comprar/<string:id_sucursal>/<string:codigo_producto>', methods=['POST'])
+def comprar_producto_tienda(id_sucursal, codigo_producto):
+    """Procesa la 'compra' de un producto de una sucursal."""
+    id_sucursal_upper = id_sucursal.upper()
+    codigo_producto_upper = codigo_producto.upper()
+    
+    # Aquí podrías obtener la cantidad del formulario si permites comprar más de uno a la vez.
+    # Por ahora, asumimos que se compra 1 unidad.
+    # payload = {"cantidad_comprada": 1} # La API actual no espera payload para /comprar
+
+    try:
+        api_url = f"{API_BASE_URL}/sucursal/{id_sucursal_upper}/producto/{codigo_producto_upper}/comprar"
+        # Este endpoint en la API actual no espera un payload JSON, solo descuenta 1.
+        response = requests.post(api_url) 
+
+        if response.status_code == 200:
+            flash(response.json().get("mensaje", "¡Compra exitosa!"), "success")
+        elif response.status_code == 400: # Ej. Stock insuficiente
+            flash(response.json().get("error", "No se pudo completar la compra."), "warning")
+        elif response.status_code == 404:
+            flash("Producto o sucursal no encontrado para la compra.", "error")
+        else:
+            error_msg = response.json().get("error", "Error desconocido durante la compra.")
+            flash(f"Error en la compra (API {response.status_code}): {error_msg}", "error")
+            
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Error de conexión/API al comprar producto: {e}")
+        flash("Error de conexión al procesar la compra.", "danger")
+    
+    # Redirigir de vuelta a la página de la tienda de esa sucursal
+    return redirect(url_for('tienda_sucursal', id_sucursal=id_sucursal_upper))
+
 
 @app.route('/buscar_redirect', methods=['GET'])
 def buscar_producto_redirect():
