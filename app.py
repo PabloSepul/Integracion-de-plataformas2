@@ -6,8 +6,12 @@ import logging
 app = Flask(__name__)
 app.secret_key = 'tu_super_secreto_aqui_cambialo_por_algo_seguro'
 
-logging.basicConfig(level=logging.DEBUG)
-app.logger.setLevel(logging.DEBUG)
+if not app.debug:
+    logging.basicConfig(level=logging.INFO)
+    app.logger.setLevel(logging.INFO)
+else:
+    logging.basicConfig(level=logging.DEBUG)
+    app.logger.setLevel(logging.DEBUG)
 
 API_BASE_URL = "http://127.0.0.1:5001/api"
 
@@ -36,11 +40,15 @@ def buscar_producto():
     if not codigo_producto_buscado:
         flash("Por favor, ingrese un código de producto.", "warning")
         return redirect(url_for('pagina_inicio'))
-
     try:
         response = requests.get(f"{API_BASE_URL}/producto/{codigo_producto_buscado}")
         if response.status_code == 200:
             datos_producto = response.json()
+            if not datos_producto.get('codigo_producto'):
+                app.logger.error(f"API devolvió producto sin codigo_producto o vacío para búsqueda: {codigo_producto_buscado}. Respuesta API: {datos_producto}")
+                flash(f"Error: La API devolvió datos incompletos para el producto '{codigo_producto_buscado}'.", "error")
+                return redirect(url_for('pagina_inicio'))
+
             mensajes_stock_bajo = [
                 f"¡Alerta! Stock es 0 en {s.get('nombre_sucursal', 'N/A')}."
                 for s in datos_producto.get("sucursales", []) if s.get("cantidad", 0) == 0
@@ -64,7 +72,6 @@ def gestionar_nuevo_producto():
         codigo_producto = request.form.get('codigo_producto', '').strip().upper()
         nombre_producto = request.form.get('nombre_producto', '').strip()
         stock_casa_matriz_str = request.form.get('stock_casa_matriz', '0')
-
         if not codigo_producto or not nombre_producto:
             flash("El código y el nombre del producto son obligatorios.", "warning")
             return render_template('nuevo_producto.html', current_year=get_current_year(), form_data=form_data)
@@ -76,10 +83,8 @@ def gestionar_nuevo_producto():
         except ValueError:
             flash("El stock en casa matriz debe ser un número entero.", "warning")
             return render_template('nuevo_producto.html', current_year=get_current_year(), form_data=form_data)
-
         payload = {
-            "codigo_producto": codigo_producto,
-            "nombre_producto": nombre_producto,
+            "codigo_producto": codigo_producto, "nombre_producto": nombre_producto,
             "stock_casa_matriz": stock_casa_matriz
         }
         try:
@@ -97,6 +102,41 @@ def gestionar_nuevo_producto():
         return render_template('nuevo_producto.html', current_year=get_current_year(), form_data=form_data)
     return render_template('nuevo_producto.html', current_year=get_current_year(), form_data=form_data)
 
+@app.route('/sucursal/nueva', methods=['GET', 'POST'])
+def gestionar_nueva_sucursal():
+    form_data = request.form if request.method == 'POST' else {}
+    if request.method == 'POST':
+        id_sucursal = request.form.get('id_sucursal', '').strip().upper()
+        nombre_sucursal = request.form.get('nombre_sucursal', '').strip()
+
+        if not id_sucursal or not nombre_sucursal:
+            flash("El ID y el nombre de la sucursal son obligatorios.", "warning")
+            return render_template('nueva_sucursal.html', current_year=get_current_year(), form_data=form_data)
+
+        payload = {
+            "id_sucursal": id_sucursal,
+            "nombre_sucursal": nombre_sucursal
+        }
+        try:
+            response = requests.post(f"{API_BASE_URL}/sucursal", json=payload)
+            if response.status_code == 201:
+                flash(f"Sucursal '{nombre_sucursal}' ({id_sucursal}) creada exitosamente.", "success")
+                # Podrías redirigir a una lista de sucursales si existiera, o a la página de inicio
+                return redirect(url_for('pagina_inicio')) 
+            elif response.status_code == 409: # Conflicto (ID o nombre duplicado)
+                 flash(response.json().get("error", f"Error: Ya existe una sucursal con ese ID o nombre."), "error")
+            else:
+                error_msg = response.json().get("error", "Error desconocido de la API.")
+                flash(f"Error al crear sucursal (API {response.status_code}): {error_msg}", "error")
+        except requests.exceptions.RequestException as e:
+            flash(f"Error de conexión con la API al crear sucursal: {e}", "danger")
+        # Si hay error, volver a renderizar el formulario con los datos ingresados
+        return render_template('nueva_sucursal.html', current_year=get_current_year(), form_data=form_data)
+
+    # Método GET: mostrar el formulario vacío
+    return render_template('nueva_sucursal.html', current_year=get_current_year(), form_data=form_data)
+
+
 @app.route('/producto/asignar_sucursal', methods=['GET', 'POST'])
 @app.route('/producto/<string:codigo_producto_param>/asignar_sucursal', methods=['GET', 'POST'])
 def gestionar_asignacion_sucursal(codigo_producto_param=None):
@@ -107,14 +147,12 @@ def gestionar_asignacion_sucursal(codigo_producto_param=None):
         form_data_repopulate = request.form.to_dict()
     elif codigo_producto_param:
         form_data_repopulate['codigo_producto'] = codigo_producto_param.upper()
-
     try:
         res_prods = requests.get(f"{API_BASE_URL}/productos", timeout=5)
         if res_prods.status_code == 200:
             productos_api = res_prods.json()
         else:
             flash("No se pudieron cargar los productos desde la API.", "warning")
-        
         res_sucs = requests.get(f"{API_BASE_URL}/sucursales_maestras", timeout=5)
         if res_sucs.status_code == 200:
             sucursales_api = res_sucs.json()
@@ -130,7 +168,6 @@ def gestionar_asignacion_sucursal(codigo_producto_param=None):
         id_sucursal = request.form.get('id_sucursal', '').strip().upper()
         cantidad_str = request.form.get('cantidad', '0')
         precio_local_str = request.form.get('precio_local', '0.0')
-
         if not codigo_producto or not id_sucursal:
             flash("Debe seleccionar un producto y una sucursal.", "warning")
         else:
@@ -163,58 +200,73 @@ def gestionar_asignacion_sucursal(codigo_producto_param=None):
                            productos=productos_api, sucursales=sucursales_api,
                            current_year=get_current_year(), form_data=form_data_repopulate)
 
-# --- Ruta para Eliminación Definitiva de Productos ---
-@app.route('/producto/<string:codigo_producto>/eliminar', methods=['POST'])
-def eliminar_producto(codigo_producto):
-    app.logger.debug(f"Intentando eliminar producto con código (desde URL): '{codigo_producto}'")
-    
-    if not codigo_producto or codigo_producto.isspace():
-        flash("Error: Código de producto inválido para eliminar.", "error")
+@app.route('/producto/restock_casa_matriz', methods=['GET', 'POST'])
+def pagina_restock_casa_matriz():
+    productos_api = []
+    try:
+        res_prods = requests.get(f"{API_BASE_URL}/productos", timeout=5)
+        if res_prods.status_code == 200:
+            productos_api = res_prods.json()
+        else:
+            flash("No se pudieron cargar los productos desde la API para el restock.", "warning")
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Error de conexión/API al cargar productos para restock: {e}")
+        flash("Error de conexión al cargar productos para restock.", "danger")
         return redirect(url_for('pagina_inicio'))
 
-    try:
-        api_url = f"{API_BASE_URL}/producto/{codigo_producto.upper()}" # El método DELETE se especifica en la llamada
-        app.logger.debug(f"Llamando a API para eliminar físicamente: {api_url} con método DELETE")
-        
-        response = requests.delete(api_url) # Usar requests.delete()
-        
-        app.logger.debug(f"Respuesta de API (eliminar) - Status: {response.status_code}, Contenido: {response.text}")
+    if request.method == 'POST':
+        codigo_producto = request.form.get('codigo_producto', '').strip().upper()
+        cantidad_a_agregar_str = request.form.get('cantidad_a_agregar', '0')
 
-        if response.status_code == 200:
-            flash(response.json().get("mensaje", f"Producto {codigo_producto.upper()} eliminado permanentemente."), "success")
-        elif response.status_code == 404:
-            flash(f"Producto {codigo_producto.upper()} no encontrado para eliminar (API).", "error")
+        if not codigo_producto:
+            flash("Debe seleccionar un producto.", "warning")
         else:
-            error_msg = "Error desconocido de la API."
             try:
-                error_msg = response.json().get("error", error_msg)
-            except ValueError:
-                app.logger.warning(f"Respuesta de API (eliminar) no fue JSON: {response.text}")
-            flash(f"Error al eliminar producto (API {response.status_code}): {error_msg}", "error")
+                cantidad_a_agregar = int(cantidad_a_agregar_str)
+                if cantidad_a_agregar <= 0:
+                    flash("La cantidad a agregar debe ser un número positivo.", "warning")
+                else:
+                    payload = {"cantidad_a_agregar": cantidad_a_agregar}
+                    api_url_post = f"{API_BASE_URL}/producto/{codigo_producto}/restock_matriz"
+                    
+                    app.logger.debug(f"Enviando a API para restock: URL={api_url_post}, Payload={payload}")
+                    response = requests.post(api_url_post, json=payload)
+                    
+                    if response.status_code == 200:
+                        flash(response.json().get("mensaje", "Stock actualizado exitosamente."), "success")
+                        return redirect(url_for('buscar_producto_redirect', codigo_producto=codigo_producto))
+                    else:
+                        error_msg = response.json().get("error", "Error desconocido al hacer restock.")
+                        flash(f"Error al hacer restock (API {response.status_code}): {error_msg}", "error")
             
-    except requests.exceptions.RequestException as e:
-        app.logger.error(f"Error de conexión/API al eliminar producto: {e}")
-        flash("Error de conexión al eliminar producto.", "danger")
-    
-    return redirect(url_for('pagina_inicio')) # Siempre redirigir a inicio después de eliminar
+            except ValueError:
+                flash("La cantidad a agregar debe ser un número entero válido.", "warning")
+            except requests.exceptions.RequestException as e:
+                 flash(f"Error de conexión con la API al hacer restock: {e}", "danger")
+        
+        return render_template('restock_casa_matriz.html',
+                               productos=productos_api,
+                               current_year=get_current_year(),
+                               form_data=request.form) 
 
+    return render_template('restock_casa_matriz.html',
+                           productos=productos_api,
+                           current_year=get_current_year(),
+                           form_data={})
 
 @app.route('/buscar_redirect', methods=['GET'])
 def buscar_producto_redirect():
     codigo_producto = request.args.get('codigo_producto')
     if not codigo_producto:
         return redirect(url_for('pagina_inicio'))
-    
     class MockForm:
         def __init__(self, data): self._data = data
         def get(self, key, default=None): return self._data.get(key, default)
-
     original_form = request.form
     request.form = MockForm({'codigo_producto': codigo_producto}) 
     response_view = buscar_producto()
     request.form = original_form 
     return response_view
 
-
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)

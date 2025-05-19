@@ -17,7 +17,7 @@
 </head>
 <body class="bg-gradient-to-br from-slate-900 to-slate-700 text-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
 
-    <div class="bg-slate-800 shadow-2xl rounded-xl p-6 md:p-10 w-full max-w-lg">
+    <div class="bg-slate-800 shadow-2xl rounded-xl p-6 md:p-10 w-full max-w-lg"> {# Max-width ajustado a lg ya que no hay segunda columna #}
         <div class="flex justify-start mb-6">
             <a href="{{ url_for('pagina_inicio') }}"
                class="inline-flex items-center px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-md transition duration-300">
@@ -40,15 +40,16 @@
             {% endif %}
         {% endwith %}
 
-        <form action="{{ url_for('gestionar_asignacion_sucursal', codigo_producto_param=selected_product_code if selected_product_code else None) }}" method="POST" class="space-y-6">
+        {# El layout de dos columnas ha sido eliminado, el formulario ocupa todo el ancho disponible #}
+        <form action="{{ url_for('gestionar_asignacion_sucursal', codigo_producto_param=form_data.codigo_producto if form_data and form_data.codigo_producto else None) }}" method="POST" class="space-y-6">
             <div>
                 <label for="codigo_producto" class="block text-sm font-medium text-amber-200 mb-1">Producto <span class="text-red-400">*</span></label>
                 <select id="codigo_producto" name="codigo_producto" required
                         class="bg-slate-700 border border-slate-600 text-gray-100 text-sm rounded-lg focus:ring-amber-500 focus:border-amber-500 block w-full p-3">
-                    <option value="" disabled {{ 'selected' if not selected_product_code and not (form_data and form_data.codigo_producto) else '' }}>-- Seleccione un Producto --</option>
+                    <option value="" disabled {{ 'selected' if not (form_data and form_data.codigo_producto) else '' }}>-- Seleccione un Producto --</option>
                     {% for prod in productos %}
                         <option value="{{ prod.codigo }}" 
-                                {{ 'selected' if selected_product_code == prod.codigo or (form_data and form_data.codigo_producto == prod.codigo) else '' }}>
+                                {{ 'selected' if (form_data and form_data.codigo_producto == prod.codigo) else '' }}>
                             {{ prod.nombre }} ({{ prod.codigo }})
                         </option>
                     {% endfor %}
@@ -70,23 +71,25 @@
                 <label for="cantidad" class="block text-sm font-medium text-amber-200 mb-1">Cantidad en Sucursal</label>
                 <input type="number" id="cantidad" name="cantidad" min="0"
                        class="bg-slate-700 border border-slate-600 text-gray-100 text-sm rounded-lg focus:ring-amber-500 focus:border-amber-500 block w-full p-3 placeholder-slate-400"
-                       value="{{ form_data.cantidad if form_data else 0 }}">
+                       value="{{ form_data.cantidad if form_data and form_data.cantidad is defined else 0 }}">
             </div>
             <div>
                 <label for="precio_local" class="block text-sm font-medium text-amber-200 mb-1">Precio en Sucursal (Moneda Local)</label>
                 <input type="number" id="precio_local" name="precio_local" min="0" step="0.01"
                        class="bg-slate-700 border border-slate-600 text-gray-100 text-sm rounded-lg focus:ring-amber-500 focus:border-amber-500 block w-full p-3 placeholder-slate-400"
-                       value="{{ form_data.precio_local if form_data else '0.00' }}">
+                       value="{{ form_data.precio_local if form_data and form_data.precio_local is defined else '0.00' }}">
             </div>
             <button type="submit"
                     class="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-opacity-50 transition duration-300">
                 <i class="fas fa-check-circle mr-2"></i>Guardar Asignación
             </button>
         </form>
+        {# Panel de Notificaciones SSE ELIMINADO #}
     </div>
 
     <footer class="mt-12 text-center text-sm text-slate-500">
-        <p>&copy; {{ current_year }} Mi Empresa S.A. - Sistema de Integración de Plataformas</p>
+        <p>&copy; {{ current_year }} Mañana es feriado S.A. - Sistema de Integración de Plataformas</p>
     </footer>
+    {# Bloque de script SSE ELIMINADO #}
 </body>
 </html>

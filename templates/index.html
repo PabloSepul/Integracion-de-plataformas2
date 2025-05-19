@@ -7,8 +7,17 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        body { font-family: 'Inter', sans-serif; }
-        .alert { padding: 1rem; margin-bottom: 1rem; border-radius: 0.375rem; font-weight: 500; }
+        /* Estilos personalizados si son necesarios además de Tailwind */
+        body { 
+            font-family: 'Inter', sans-serif; /* Fuente moderna y legible */
+        }
+        .alert { 
+            padding: 1rem; 
+            margin-bottom: 1rem; 
+            border-radius: 0.375rem; /* rounded-md */
+            font-weight: 500; /* medium */
+        }
+        /* Clases de alerta para mensajes flash, consistentes con Tailwind */
         .alert-warning { background-color: #fffbeb; border: 1px solid #fef3c7; color: #b45309; }
         .alert-error { background-color: #fff1f2; border: 1px solid #ffdde0; color: #be123c; }
         .alert-danger { background-color: #fef2f2; border: 1px solid #fee2e2; color: #dc2626; }
@@ -16,7 +25,7 @@
         .alert-info { background-color: #eff6ff; border: 1px solid #dbeafe; color: #2563eb; }
 
         .product-list-item:hover {
-            background-color: #374151; /* gray-700 for dark theme */
+            background-color: #374151; /* gray-700 para tema oscuro */
             cursor: pointer;
         }
     </style>
@@ -27,7 +36,7 @@
         <div class="text-center mb-8">
             <i class="fas fa-store text-5xl text-sky-400 mb-4"></i>
             <h1 class="text-3xl font-bold tracking-tight text-sky-300">Consulta y Gestión de Inventario</h1>
-            <p class="text-slate-400 mt-2">Busca, agrega o asigna productos.</p>
+            <p class="text-slate-400 mt-2">Busca, agrega, asigna o haz restock de productos. Gestiona sucursales.</p>
         </div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -41,6 +50,7 @@
         {% endwith %}
 
         <div class="md:flex md:space-x-8">
+            
             <div class="md:w-1/2 space-y-6 mb-8 md:mb-0">
                 <form action="{{ url_for('buscar_producto') }}" method="POST" class="space-y-6">
                     <div>
@@ -70,7 +80,15 @@
                        class="w-full flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-opacity-50 transition duration-300">
                         <i class="fas fa-dolly-flatbed mr-2"></i>Asignar Producto a Sucursal
                     </a>
-                    </div>
+                    <a href="{{ url_for('pagina_restock_casa_matriz') }}"
+                       class="w-full flex items-center justify-center bg-teal-600 hover:bg-teal-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-opacity-50 transition duration-300">
+                        <i class="fas fa-cubes-stacked mr-2"></i>Restock Casa Matriz
+                    </a>
+                    <a href="{{ url_for('gestionar_nueva_sucursal') }}"
+                       class="w-full flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50 transition duration-300">
+                        <i class="fas fa-store-alt mr-2"></i>Agregar Nueva Sucursal
+                    </a>
+                </div>
             </div>
 
             <div class="md:w-1/2">
@@ -85,14 +103,14 @@
                                     <span class="font-semibold text-sky-400">{{ producto.codigo }}</span> - 
                                     <span class="text-slate-300">{{ producto.nombre }}</span>
                                 </li>
-                            {% else %}
+                            {% else %} 
                                 <li>
                                     <p class="text-slate-400 italic">No hay productos activos para mostrar.</p>
                                 </li>
                             {% endfor %}
                         </ul>
                     </div>
-                {% else %}
+                {% else %} 
                     <p class="text-slate-400 italic">No hay productos activos para mostrar o no se pudieron cargar.</p>
                 {% endif %}
             </div>
@@ -100,10 +118,11 @@
     </div>
 
     <footer class="mt-12 text-center text-sm text-slate-500">
-        <p>&copy; {{ current_year }} Mi Empresa S.A. - Sistema de Integración de Plataformas</p>
+        <p>&copy; {{ current_year }} Mañana es feriado S.A. - Sistema de Integración de Plataformas</p>
     </footer>
 
     <script>
+        // Función para llenar el campo de búsqueda al hacer clic en un producto de la lista
         function seleccionarProducto(codigo) {
             const inputBusqueda = document.getElementById('codigo_producto_busqueda');
             if (inputBusqueda) {

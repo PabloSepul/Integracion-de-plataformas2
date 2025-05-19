@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Resultados: {{ producto.nombre_producto }}</title>
+    <title>Resultados: {{ producto.nombre_producto if producto and producto.nombre_producto else 'Producto no encontrado' }}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
@@ -15,18 +15,23 @@
 <body class="bg-gradient-to-br from-slate-900 to-slate-700 text-gray-100 min-h-screen p-4 md:p-8">
 
     <div class="container mx-auto max-w-4xl">
-        <div class="mb-6 flex justify-between items-center">
+        <div class="mb-6 flex flex-wrap justify-between items-center gap-4">
             <a href="{{ url_for('pagina_inicio') }}"
                class="inline-flex items-center px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium rounded-md transition duration-300">
                 <i class="fas fa-arrow-left mr-2"></i>Volver a la Búsqueda
             </a>
-            <a href="{{ url_for('gestionar_asignacion_sucursal', codigo_producto_param=producto.codigo_producto) }}"
-               class="inline-flex items-center px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-md transition duration-300">
-                <i class="fas fa-dolly-flatbed mr-2"></i>Asignar/Actualizar en Sucursal
-            </a>
+            
+            {% if producto and producto.codigo_producto %}
+            <div class="flex flex-wrap gap-3">
+                <a href="{{ url_for('gestionar_asignacion_sucursal', codigo_producto_param=producto.codigo_producto) }}"
+                   class="inline-flex items-center px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-md transition duration-300">
+                    <i class="fas fa-dolly-flatbed mr-2"></i>Asignar/Actualizar en Sucursal
+                </a>
+            </div>
+            {% endif %}
         </div>
 
-        {% if producto %}
+        {% if producto and producto.codigo_producto %}
         <div class="bg-slate-800 shadow-2xl rounded-xl p-6 md:p-8">
             <div class="border-b border-slate-700 pb-6 mb-6">
                 <h1 class="text-3xl md:text-4xl font-bold text-sky-300">{{ producto.nombre_producto }}</h1>
@@ -67,7 +72,7 @@
                     {% for suc in producto.sucursales %}
                     <div class="bg-slate-700 p-5 rounded-lg shadow hover:shadow-sky-500/30 transition-shadow duration-300">
                         <h3 class="text-lg font-semibold text-sky-300">{{ suc.nombre_sucursal }}</h3>
-                        <p class="text-sm text-slate-400">ID: {{ suc.id_sucursal }}</p>
+                        <p class="text-sm text-slate-400">ID: {{ suc.sucursal_id if suc.sucursal_id else suc.id_sucursal }}</p> 
                         <div class="mt-3">
                             <p class="text-slate-300">
                                 <i class="fas fa-cubes mr-2 text-sky-500"></i>Cantidad:
@@ -80,7 +85,7 @@
                                 <span class="font-semibold">
                                     {{ "${:,.2f}".format(suc.precio_local).replace(",", "X").replace(".", ",").replace("X", ".") }}
                                 </span>
-                                <span class="text-xs text-slate-400">(Moneda Local)</span>
+                                <span class="text-xs text-slate-400">(CLP)</span>
                             </p>
                         </div>
                         {% if suc.cantidad == 0 %}
@@ -115,7 +120,7 @@
                                 class="bg-slate-600 border border-slate-500 text-gray-100 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block w-full p-2.5">
                             {% for suc in producto.sucursales %}
                                 {% if suc.cantidad > 0 %}
-                                    <option value="{{ suc.id_sucursal }}" data-precio="{{ suc.precio_local }}">
+                                    <option value="{{ suc.sucursal_id if suc.sucursal_id else suc.id_sucursal }}" data-precio="{{ suc.precio_local }}">
                                         {{ suc.nombre_sucursal }} (Precio: {{ "{:,.0f}".format(suc.precio_local) }})
                                     </option>
                                 {% endif %}
@@ -135,79 +140,78 @@
                     </p>
                 </div>
             </div>
-
-            <script>
-                const productoData = {{ producto | tojson }};
-
-                function convertirADolares() {
-                    const cantidadInput = document.getElementById('cantidad_a_convertir');
-                    const sucursalSelect = document.getElementById('sucursal_calculadora');
-                    const resultadoSpan = document.getElementById('resultadoDolares');
-                    const cantidad = parseFloat(cantidadInput.value);
-                    
-                    if (isNaN(cantidad) || cantidad <= 0) {
-                        resultadoSpan.textContent = "Cantidad inválida";
-                        resultadoSpan.classList.remove('text-green-400');
-                        resultadoSpan.classList.add('text-red-400');
-                        return;
-                    }
-                    if (sucursalSelect.options.length === 0) {
-                        resultadoSpan.textContent = "No hay sucursales con stock para calcular.";
-                        resultadoSpan.classList.remove('text-green-400');
-                        resultadoSpan.classList.add('text-red-400');
-                        return;
-                    }
-                    const selectedOption = sucursalSelect.options[sucursalSelect.selectedIndex];
-                    const precioSucursalLocal = parseFloat(selectedOption.dataset.precio);
-                    const tasaCambio = parseFloat(productoData.tasa_cambio_a_usd);
-
-                    if (isNaN(precioSucursalLocal) || isNaN(tasaCambio) || tasaCambio === 0) {
-                        resultadoSpan.textContent = "Error en datos de precio/cambio.";
-                        resultadoSpan.classList.remove('text-green-400');
-                        resultadoSpan.classList.add('text-red-400');
-                        return;
-                    }
-                    const valorTotalLocal = cantidad * precioSucursalLocal;
-                    const valorEnDolares = valorTotalLocal / tasaCambio;
-                    resultadoSpan.textContent = '$' + valorEnDolares.toFixed(2);
-                    resultadoSpan.classList.add('text-green-400');
-                    resultadoSpan.classList.remove('text-red-400');
-                }
-
-                document.addEventListener('DOMContentLoaded', function() {
-                    const sucursalSelect = document.getElementById('sucursal_calculadora');
-                    const convertButton = document.querySelector('button[onclick="convertirADolares()"]'); 
-                    
-                    if (sucursalSelect && sucursalSelect.options.length === 0 && convertButton) {
-                        convertButton.disabled = true;
-                        convertButton.classList.add('opacity-50', 'cursor-not-allowed');
-                        convertButton.textContent = 'No hay sucursales para convertir';
-                        const resultadoSpan = document.getElementById('resultadoDolares');
-                        if(resultadoSpan) resultadoSpan.textContent = "N/A";
-                    } else if (sucursalSelect && sucursalSelect.options.length > 0) {
-                        // convertirADolares(); 
-                    }
-                });
-            </script>
             {% else %}
-                {% if not producto.sucursales %}
-                <p class="text-slate-400 italic mt-6">La calculadora no está disponible porque no hay información de sucursales para este producto.</p>
-                {% elif not producto.tasa_cambio_a_usd %}
-                <p class="text-slate-400 italic mt-6">La calculadora no está disponible porque falta la tasa de cambio.</p>
-                {% endif %}
+                 {% if producto and not producto.sucursales %} 
+                    <p class="text-slate-400 italic mt-6">La calculadora no está disponible porque no hay información de sucursales para este producto.</p>
+                 {% elif producto and not producto.tasa_cambio_a_usd %}
+                    <p class="text-slate-400 italic mt-6">La calculadora no está disponible porque falta la tasa de cambio.</p>
+                 {% endif %}
             {% endif %}
+
         </div>
-        {% else %}
+        {% else %} 
             <div class="bg-slate-800 shadow-2xl rounded-xl p-6 md:p-8 text-center">
                 <i class="fas fa-exclamation-triangle text-5xl text-red-400 mb-4"></i>
-                <h1 class="text-2xl font-semibold text-red-300">Error al Cargar Producto</h1>
-                <p class="text-slate-400 mt-2">No se pudieron cargar los detalles del producto. Intenta una nueva búsqueda.</p>
+                <h1 class="text-2xl font-semibold text-red-300">Producto No Encontrado</h1>
+                <p class="text-slate-400 mt-2">El producto que buscas no existe. Intenta una nueva búsqueda.</p>
             </div>
         {% endif %}
 
         <footer class="mt-12 text-center text-sm text-slate-500">
-            <p>&copy; {{ current_year }} Mi Empresa S.A. - Sistema de Integración de Plataformas</p>
+            <p>&copy; {{ current_year }} Mañana es feriado S.A. - Sistema de Integración de Plataformas</p>
         </footer>
     </div>
+
+    <script>
+        const productoData = {{ producto | tojson if producto and producto.codigo_producto else '{}' }};
+        function convertirADolares() {
+            if (!productoData || Object.keys(productoData).length === 0 || !productoData.tasa_cambio_a_usd) { 
+                document.getElementById('resultadoDolares').textContent = "Datos de producto o tasa no disponibles.";
+                return;
+            }
+            const cantidadInput = document.getElementById('cantidad_a_convertir');
+            const sucursalSelect = document.getElementById('sucursal_calculadora');
+            const resultadoSpan = document.getElementById('resultadoDolares');
+            const cantidad = parseFloat(cantidadInput.value);
+            if (isNaN(cantidad) || cantidad <= 0) {
+                resultadoSpan.textContent = "Cantidad inválida";
+                resultadoSpan.classList.remove('text-green-400');
+                resultadoSpan.classList.add('text-red-400');
+                return;
+            }
+            if (sucursalSelect.options.length === 0) {
+                resultadoSpan.textContent = "No hay sucursales con stock para calcular.";
+                resultadoSpan.classList.remove('text-green-400');
+                resultadoSpan.classList.add('text-red-400');
+                return;
+            }
+            const selectedOption = sucursalSelect.options[sucursalSelect.selectedIndex];
+            const precioSucursalLocal = parseFloat(selectedOption.dataset.precio);
+            const tasaCambio = parseFloat(productoData.tasa_cambio_a_usd);
+            if (isNaN(precioSucursalLocal) || isNaN(tasaCambio) || tasaCambio === 0) {
+                resultadoSpan.textContent = "Error en datos de precio/cambio.";
+                resultadoSpan.classList.remove('text-green-400');
+                resultadoSpan.classList.add('text-red-400');
+                return;
+            }
+            const valorTotalLocal = cantidad * precioSucursalLocal;
+            const valorEnDolares = valorTotalLocal / tasaCambio;
+            resultadoSpan.textContent = '$' + valorEnDolares.toFixed(2);
+            resultadoSpan.classList.add('text-green-400');
+            resultadoSpan.classList.remove('text-red-400');
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            const sucursalSelect = document.getElementById('sucursal_calculadora');
+            const convertButton = document.querySelector('button[onclick="convertirADolares()"]'); 
+            if (sucursalSelect && sucursalSelect.options.length === 0 && convertButton) {
+                convertButton.disabled = true;
+                convertButton.classList.add('opacity-50', 'cursor-not-allowed');
+                convertButton.textContent = 'No hay sucursales para convertir';
+                const resultadoSpan = document.getElementById('resultadoDolares');
+                if(resultadoSpan) resultadoSpan.textContent = "N/A";
+            }
+        });
+        // Bloque de script SSE ELIMINADO
+    </script>
 </body>
 </html>
