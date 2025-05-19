@@ -3,133 +3,255 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Buscador de Productos Corporativo</title>
+    <title>Explorador de Inventario por Sucursal</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* Estilos personalizados si son necesarios además de Tailwind */
-        body { 
-            font-family: 'Inter', sans-serif; /* Fuente moderna y legible */
-        }
-        .alert { 
-            padding: 1rem; 
-            margin-bottom: 1rem; 
-            border-radius: 0.375rem; /* rounded-md */
-            font-weight: 500; /* medium */
-        }
-        /* Clases de alerta para mensajes flash, consistentes con Tailwind */
+        body { font-family: 'Inter', sans-serif; }
+        .alert { padding: 1rem; margin-bottom: 1rem; border-radius: 0.375rem; font-weight: 500; }
         .alert-warning { background-color: #fffbeb; border: 1px solid #fef3c7; color: #b45309; }
         .alert-error { background-color: #fff1f2; border: 1px solid #ffdde0; color: #be123c; }
         .alert-danger { background-color: #fef2f2; border: 1px solid #fee2e2; color: #dc2626; }
         .alert-success { background-color: #f0fdf4; border: 1px solid #dcfce7; color: #166534; }
         .alert-info { background-color: #eff6ff; border: 1px solid #dbeafe; color: #2563eb; }
-
-        .product-list-item:hover {
-            background-color: #374151; /* gray-700 para tema oscuro */
+        .sucursal-link.active {
+            background-color: #0ea5e9; /* sky-500 */
+            color: white;
+        }
+        .sucursal-link:hover {
+            background-color: #38bdf8; /* sky-400 */
+        }
+        .product-item-calc:hover {
+            background-color: #374151; /* gray-700 */
             cursor: pointer;
         }
     </style>
 </head>
-<body class="bg-gradient-to-br from-slate-900 to-slate-700 text-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+<body class="bg-gradient-to-br from-slate-900 to-slate-700 text-gray-100 min-h-screen p-4 md:p-6">
 
-    <div class="bg-slate-800 shadow-2xl rounded-xl p-6 md:p-10 w-full max-w-3xl transform transition-all duration-300 hover:scale-[1.02]">
-        <div class="text-center mb-8">
-            <i class="fas fa-store text-5xl text-sky-400 mb-4"></i>
-            <h1 class="text-3xl font-bold tracking-tight text-sky-300">Consulta y Gestión de Inventario</h1>
-            <p class="text-slate-400 mt-2">Busca, agrega, asigna o haz restock de productos. Gestiona sucursales.</p>
+    <div class="container mx-auto max-w-7xl bg-slate-800 shadow-2xl rounded-xl p-4 md:p-8">
+        <div class="text-center mb-6 md:mb-8">
+            <i class="fas fa-landmark text-5xl text-sky-400 mb-3"></i>
+            <h1 class="text-3xl md:text-4xl font-bold tracking-tight text-sky-300">Explorador de Inventario por Sucursal</h1>
         </div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
+                <div class="mb-4">
                 {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} mb-4 text-sm" role="alert">
+                    <div class="alert alert-{{ category }} text-sm" role="alert">
                         {{ message }}
                     </div>
                 {% endfor %}
+                </div>
             {% endif %}
         {% endwith %}
 
-        <div class="md:flex md:space-x-8">
-            
-            <div class="md:w-1/2 space-y-6 mb-8 md:mb-0">
-                <form action="{{ url_for('buscar_producto') }}" method="POST" class="space-y-6">
-                    <div>
-                        <label for="codigo_producto_busqueda" class="block text-sm font-medium text-sky-200 mb-1">Código del Producto a Buscar</label>
-                        <div class="relative">
-                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                <i class="fas fa-barcode text-slate-400"></i>
-                            </div>
-                            <input type="text" id="codigo_producto_busqueda" name="codigo_producto"
-                                   class="bg-slate-700 border border-slate-600 text-gray-100 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block w-full pl-10 p-3 placeholder-slate-400"
-                                   placeholder="Ej: P001" required
-                                   oninput="this.value = this.value.toUpperCase()">
-                        </div>
-                    </div>
-                    <button type="submit"
-                            class="w-full bg-sky-600 hover:bg-sky-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-opacity-50 transition duration-300 ease-in-out transform hover:-translate-y-0.5">
-                        <i class="fas fa-search mr-2"></i>Buscar Producto
-                    </button>
-                </form>
-        
-                <div class="space-y-3 pt-4 border-t border-slate-700">
-                     <a href="{{ url_for('gestionar_nuevo_producto') }}"
-                       class="w-full flex items-center justify-center bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition duration-300">
-                        <i class="fas fa-plus-circle mr-2"></i>Agregar Nuevo Producto
-                    </a>
-                     <a href="{{ url_for('gestionar_asignacion_sucursal') }}"
-                       class="w-full flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-opacity-50 transition duration-300">
-                        <i class="fas fa-dolly-flatbed mr-2"></i>Asignar Producto a Sucursal
-                    </a>
-                    <a href="{{ url_for('pagina_restock_casa_matriz') }}"
-                       class="w-full flex items-center justify-center bg-teal-600 hover:bg-teal-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-opacity-50 transition duration-300">
-                        <i class="fas fa-cubes-stacked mr-2"></i>Restock Casa Matriz
-                    </a>
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+
+            <div class="md:col-span-3 bg-slate-700/50 p-4 rounded-lg shadow">
+                <h2 class="text-xl font-semibold text-sky-300 mb-3 border-b border-slate-600 pb-2">Sucursales</h2>
+                {% if sucursales_maestras %}
+                    <ul class="space-y-1 max-h-[60vh] md:max-h-[70vh] overflow-y-auto">
+                        {% for suc in sucursales_maestras %}
+                            <li>
+                                <a href="{{ url_for('pagina_inicio', sucursal_id=suc.id_sucursal) }}"
+                                   class="sucursal-link block w-full text-left px-3 py-2.5 rounded-md text-slate-200 hover:text-white transition-colors duration-150 
+                                          {% if sucursal_seleccionada and sucursal_seleccionada.id_sucursal == suc.id_sucursal %}active{% else %}bg-slate-600/50 hover:bg-sky-600{% endif %}">
+                                    <i class="fas fa-store-alt mr-2 opacity-75"></i>{{ suc.nombre_sucursal }} ({{ suc.id_sucursal }})
+                                </a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="text-slate-400 italic">No hay sucursales disponibles.</p>
+                {% endif %}
+                 <div class="mt-6 pt-4 border-t border-slate-600 space-y-2">
                     <a href="{{ url_for('gestionar_nueva_sucursal') }}"
-                       class="w-full flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-50 transition duration-300">
-                        <i class="fas fa-store-alt mr-2"></i>Agregar Nueva Sucursal
+                       class="w-full flex items-center justify-center text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-3 rounded-md transition duration-300">
+                        <i class="fas fa-plus-circle mr-2"></i>Agregar Sucursal
+                    </a>
+                    <a href="{{ url_for('gestionar_sucursales_maestras') }}"
+                       class="w-full flex items-center justify-center text-sm bg-purple-600 hover:bg-purple-700 text-white font-medium py-2.5 px-3 rounded-md transition duration-300">
+                        <i class="fas fa-cogs mr-2"></i>Gestionar Sucursales
                     </a>
                 </div>
             </div>
 
-            <div class="md:w-1/2">
-                <h2 class="text-xl font-semibold text-sky-300 mb-3 border-b border-slate-700 pb-2">Productos Activos</h2>
-                {% if productos_existentes %}
-                    <div class="max-h-80 overflow-y-auto bg-slate-700/50 p-3 rounded-lg shadow-inner">
-                        <ul class="space-y-2">
-                            {% for producto in productos_existentes %}
-                                <li class="product-list-item p-2 rounded-md transition-colors duration-150" 
-                                    onclick="seleccionarProducto('{{ producto.codigo }}')"
-                                    title="Clic para buscar {{ producto.codigo }}">
-                                    <span class="font-semibold text-sky-400">{{ producto.codigo }}</span> - 
-                                    <span class="text-slate-300">{{ producto.nombre }}</span>
+            <div class="md:col-span-6 bg-slate-700/50 p-4 rounded-lg shadow">
+                {% if sucursal_seleccionada %}
+                    <h2 class="text-2xl font-semibold text-amber-300 mb-4">
+                        Productos en: <span class="text-amber-200">{{ sucursal_seleccionada.nombre_sucursal }} ({{ sucursal_seleccionada.id_sucursal }})</span>
+                    </h2>
+                    {% if productos_de_sucursal %}
+                        <div class="max-h-[45vh] overflow-y-auto mb-6">
+                            <ul class="space-y-2">
+                                {% for prod in productos_de_sucursal %}
+                                <li class="product-item-calc bg-slate-600/70 p-3 rounded-md hover:bg-slate-600 transition-colors"
+                                    data-codigo="{{ prod.codigo_producto }}" 
+                                    data-nombre="{{ prod.nombre_producto }}"
+                                    data-precio="{{ prod.precio_local }}"
+                                    onclick="seleccionarProductoParaCalculadora(this)">
+                                    <div class="flex justify-between items-center">
+                                        <span class="font-semibold text-sky-300">{{ prod.nombre_producto }} ({{ prod.codigo_producto }})</span>
+                                        <span class="text-xs px-2 py-0.5 rounded-full 
+                                            {% if prod.cantidad > 10 %}bg-green-600/70 text-green-200
+                                            {% elif prod.cantidad > 0 %}bg-yellow-600/70 text-yellow-200
+                                            {% else %}bg-red-600/70 text-red-200
+                                            {% endif %}">
+                                            Stock: {{ prod.cantidad }}
+                                        </span>
+                                    </div>
+                                    <p class="text-sm text-slate-300 mt-1">
+                                        Precio: {{ "${:,.2f}".format(prod.precio_local).replace(",", "X").replace(".", ",").replace("X", ".") }} CLP
+                                    </p>
                                 </li>
-                            {% else %} 
-                                <li>
-                                    <p class="text-slate-400 italic">No hay productos activos para mostrar.</p>
+                                {% endfor %}
+                            </ul>
+                        </div>
+
+                        <div class="bg-slate-600/50 p-4 rounded-lg mt-4">
+                            <h3 class="text-lg font-semibold text-green-300 mb-3 flex items-center">
+                                <i class="fas fa-calculator mr-2 text-green-400"></i>Calculadora a USD
+                            </h3>
+                            <p class="text-xs text-slate-400 mb-2">
+                                Tasa de cambio: 1 USD = {{ "{:,.2f}".format(tasa_cambio_a_usd) }} CLP
+                            </p>
+                            <div class="mb-2">
+                                <label for="producto_calculadora" class="block text-sm font-medium text-green-200 mb-1">Producto Seleccionado:</label>
+                                <input type="text" id="producto_calculadora_nombre" class="bg-slate-700 border border-slate-500 text-gray-100 text-sm rounded-lg w-full p-2 placeholder-slate-400" readonly placeholder="Seleccione un producto de la lista">
+                                <input type="hidden" id="producto_calculadora_precio_local">
+                            </div>
+                            <div class="mb-2">
+                                <label for="cantidad_a_convertir" class="block text-sm font-medium text-green-200 mb-1">Cantidad a convertir:</label>
+                                <input type="number" id="cantidad_a_convertir" value="1" min="1"
+                                       class="bg-slate-700 border border-slate-500 text-gray-100 text-sm rounded-lg w-full p-2 placeholder-slate-400">
+                            </div>
+                            <button type="button" onclick="convertirADolares()"
+                                    class="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-md transition duration-300">
+                                Convertir
+                            </button>
+                            <p class="mt-3 text-slate-200">Valor en USD: 
+                                <span id="resultadoDolares" class="font-bold text-xl text-green-400">$0.00</span>
+                            </p>
+                        </div>
+                    {% else %}
+                        <p class="text-slate-400 italic">No hay productos asignados a esta sucursal.</p>
+                    {% endif %}
+                {% else %}
+                    <div class="text-center py-10">
+                        <i class="fas fa-hand-point-left text-4xl text-slate-500 mb-3"></i>
+                        <p class="text-slate-400 text-lg">Seleccione una sucursal de la lista de la izquierda para ver sus productos.</p>
+                    </div>
+                {% endif %}
+            </div>
+
+            <div class="md:col-span-3 bg-slate-700/50 p-4 rounded-lg shadow">
+                <h2 class="text-xl font-semibold text-sky-300 mb-3 border-b border-slate-600 pb-2">Búsqueda Rápida</h2>
+                <form action="{{ url_for('buscar_producto') }}" method="POST" class="space-y-3 mb-6">
+                    <div>
+                        <label for="codigo_producto_busqueda" class="block text-xs font-medium text-sky-200 mb-1">Código del Producto</label>
+                        <div class="relative">
+                            <input type="text" id="codigo_producto_busqueda" name="codigo_producto"
+                                   class="bg-slate-600 border border-slate-500 text-gray-100 text-sm rounded-lg focus:ring-sky-500 focus:border-sky-500 block w-full p-2.5 placeholder-slate-400"
+                                   placeholder="Ej: P001" required oninput="this.value = this.value.toUpperCase()">
+                        </div>
+                    </div>
+                    <button type="submit"
+                            class="w-full bg-sky-600 hover:bg-sky-700 text-white font-medium py-2.5 px-3 rounded-md transition duration-300 text-sm">
+                        <i class="fas fa-search mr-1.5"></i>Ver Detalles
+                    </button>
+                </form>
+                
+                <h2 class="text-xl font-semibold text-sky-300 mb-3 pt-3 border-t border-slate-600 pb-2">Acciones Generales</h2>
+                <div class="space-y-2">
+                     <a href="{{ url_for('gestionar_nuevo_producto') }}"
+                       class="w-full flex items-center justify-center text-sm bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 px-3 rounded-md transition duration-300">
+                        <i class="fas fa-plus-circle mr-2"></i>Agregar Producto
+                    </a>
+                     <a href="{{ url_for('gestionar_asignacion_sucursal') }}"
+                       class="w-full flex items-center justify-center text-sm bg-amber-600 hover:bg-amber-700 text-white font-medium py-2.5 px-3 rounded-md transition duration-300">
+                        <i class="fas fa-dolly-flatbed mr-2"></i>Asignar a Sucursal
+                    </a>
+                    <a href="{{ url_for('pagina_restock_casa_matriz') }}"
+                       class="w-full flex items-center justify-center text-sm bg-teal-600 hover:bg-teal-700 text-white font-medium py-2.5 px-3 rounded-md transition duration-300">
+                        <i class="fas fa-cubes-stacked mr-2"></i>Restock Casa Matriz
+                    </a>
+                </div>
+                 <h2 class="text-xl font-semibold text-sky-300 mb-3 pt-4 border-t border-slate-600 pb-2">Productos Activos</h2>
+                 <div class="max-h-40 overflow-y-auto">
+                    {% if productos_existentes %}
+                        <ul class="space-y-1 text-xs">
+                            {% for producto in productos_existentes %}
+                                <li class="product-list-item p-1.5 rounded-md" 
+                                    onclick="document.getElementById('codigo_producto_busqueda').value = '{{ producto.codigo }}'; document.getElementById('codigo_producto_busqueda').form.submit();"
+                                    title="Buscar {{ producto.codigo }}">
+                                    <span class="font-medium text-sky-400">{{ producto.codigo }}</span> - 
+                                    <span class="text-slate-300">{{ producto.nombre }}</span>
                                 </li>
                             {% endfor %}
                         </ul>
-                    </div>
-                {% else %} 
-                    <p class="text-slate-400 italic">No hay productos activos para mostrar o no se pudieron cargar.</p>
-                {% endif %}
+                    {% else %}
+                        <p class="text-slate-400 italic text-xs">N/A</p>
+                    {% endif %}
+                 </div>
             </div>
         </div>
     </div>
 
-    <footer class="mt-12 text-center text-sm text-slate-500">
+    <footer class="mt-8 text-center text-sm text-slate-500">
         <p>&copy; {{ current_year }} Mañana es feriado S.A. - Sistema de Integración de Plataformas</p>
     </footer>
 
     <script>
-        // Función para llenar el campo de búsqueda al hacer clic en un producto de la lista
-        function seleccionarProducto(codigo) {
+        function seleccionarProductoParaBusquedaRapida(codigo) {
             const inputBusqueda = document.getElementById('codigo_producto_busqueda');
             if (inputBusqueda) {
                 inputBusqueda.value = codigo;
             }
         }
-    </script>
 
+        function seleccionarProductoParaCalculadora(element) {
+            document.getElementById('producto_calculadora_nombre').value = element.dataset.nombre + " (" + element.dataset.codigo + ")";
+            document.getElementById('producto_calculadora_precio_local').value = element.dataset.precio;
+        }
+
+        function convertirADolares() {
+            const precioLocalInput = document.getElementById('producto_calculadora_precio_local');
+            const cantidadInput = document.getElementById('cantidad_a_convertir');
+            const resultadoSpan = document.getElementById('resultadoDolares');
+            const tasaCambio = parseFloat("{{ tasa_cambio_a_usd | default(0) }}");
+
+            if (!precioLocalInput.value) {
+                resultadoSpan.textContent = "Seleccione un producto";
+                resultadoSpan.classList.remove('text-green-400');
+                resultadoSpan.classList.add('text-yellow-400');
+                return;
+            }
+
+            const precioLocal = parseFloat(precioLocalInput.value);
+            const cantidad = parseFloat(cantidadInput.value);
+
+            if (isNaN(cantidad) || cantidad <= 0) {
+                resultadoSpan.textContent = "Cantidad inválida";
+                resultadoSpan.classList.remove('text-green-400');
+                resultadoSpan.classList.add('text-red-400');
+                return;
+            }
+            if (isNaN(precioLocal) || isNaN(tasaCambio) || tasaCambio === 0) {
+                resultadoSpan.textContent = "Error en datos";
+                resultadoSpan.classList.remove('text-green-400');
+                resultadoSpan.classList.add('text-red-400');
+                return;
+            }
+
+            const valorTotalLocal = cantidad * precioLocal;
+            const valorEnDolares = valorTotalLocal / tasaCambio;
+
+            resultadoSpan.textContent = '$' + valorEnDolares.toFixed(2);
+            resultadoSpan.classList.add('text-green-400');
+            resultadoSpan.classList.remove('text-red-400', 'text-yellow-400');
+        }
+    </script>
 </body>
 </html>

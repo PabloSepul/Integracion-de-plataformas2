@@ -14,25 +14,69 @@ else:
     app.logger.setLevel(logging.DEBUG)
 
 API_BASE_URL = "http://127.0.0.1:5001/api"
+DEFAULT_TASA_CAMBIO_USD_CLP = 980.0 
 
 def get_current_year():
     return datetime.datetime.now().year
 
 @app.route('/')
 def pagina_inicio():
-    productos_existentes = []
+    sucursales_maestras = []
+    productos_de_sucursal_seleccionada = []
+    sucursal_seleccionada_info = None
+    tasa_cambio = DEFAULT_TASA_CAMBIO_USD_CLP 
+    
     try:
-        response = requests.get(f"{API_BASE_URL}/productos", timeout=5)
-        if response.status_code == 200:
-            productos_existentes = response.json()
+        response_sucursales = requests.get(f"{API_BASE_URL}/sucursales_maestras", timeout=5)
+        if response_sucursales.status_code == 200:
+            sucursales_maestras = response_sucursales.json()
         else:
-            app.logger.warning(f"No se pudieron cargar los productos. API devolvió: {response.status_code}")
+            app.logger.warning(f"No se pudieron cargar las sucursales maestras. API devolvió: {response_sucursales.status_code}")
+            flash("Error al cargar la lista de sucursales.", "danger")
     except requests.exceptions.RequestException as e:
-        app.logger.error(f"Error de conexión/API al obtener lista de productos: {e}")
+        app.logger.error(f"Error de conexión/API al obtener sucursales maestras: {e}")
+        flash("Error de conexión al cargar sucursales.", "danger")
+
+    id_sucursal_seleccionada = request.args.get('sucursal_id')
+    if id_sucursal_seleccionada:
+        try:
+            api_url = f"{API_BASE_URL}/sucursal/{id_sucursal_seleccionada}/productos"
+            app.logger.debug(f"Obteniendo productos para sucursal: {api_url}")
+            response_productos_suc = requests.get(api_url, timeout=5)
+            
+            if response_productos_suc.status_code == 200:
+                data_sucursal = response_productos_suc.json()
+                productos_de_sucursal_seleccionada = data_sucursal.get("productos", [])
+                tasa_cambio = data_sucursal.get("tasa_cambio_a_usd", DEFAULT_TASA_CAMBIO_USD_CLP)
+                sucursal_seleccionada_info = {
+                    "id_sucursal": data_sucursal.get("id_sucursal"),
+                    "nombre_sucursal": data_sucursal.get("nombre_sucursal")
+                }
+                app.logger.debug(f"Productos obtenidos para sucursal {id_sucursal_seleccionada}: {len(productos_de_sucursal_seleccionada)} productos. Tasa: {tasa_cambio}")
+            elif response_productos_suc.status_code == 404:
+                flash(f"Sucursal con ID '{id_sucursal_seleccionada}' no encontrada o sin productos.", "warning")
+            else:
+                flash(f"Error al cargar productos de la sucursal (API: {response_productos_suc.status_code}).", "error")
+        except requests.exceptions.RequestException as e:
+            app.logger.error(f"Error de conexión/API al obtener productos de sucursal {id_sucursal_seleccionada}: {e}")
+            flash("Error de conexión al cargar productos de la sucursal.", "danger")
+    
+    productos_existentes_para_lista_general = []
+    try:
+        response_prods_general = requests.get(f"{API_BASE_URL}/productos", timeout=5)
+        if response_prods_general.status_code == 200:
+            productos_existentes_para_lista_general = response_prods_general.json()
+    except requests.exceptions.RequestException:
+        app.logger.warning("No se pudo cargar la lista general de productos para el buscador.")
 
     return render_template('index.html', 
                            current_year=get_current_year(),
-                           productos_existentes=productos_existentes)
+                           sucursales_maestras=sucursales_maestras,
+                           productos_de_sucursal=productos_de_sucursal_seleccionada,
+                           sucursal_seleccionada=sucursal_seleccionada_info,
+                           tasa_cambio_a_usd=tasa_cambio,
+                           productos_existentes=productos_existentes_para_lista_general
+                           )
 
 @app.route('/buscar', methods=['POST'])
 def buscar_producto():
@@ -67,6 +111,7 @@ def buscar_producto():
 
 @app.route('/producto/nuevo', methods=['GET', 'POST'])
 def gestionar_nuevo_producto():
+    # ... (sin cambios) ...
     form_data = request.form if request.method == 'POST' else {}
     if request.method == 'POST':
         codigo_producto = request.form.get('codigo_producto', '').strip().upper()
@@ -104,6 +149,7 @@ def gestionar_nuevo_producto():
 
 @app.route('/sucursal/nueva', methods=['GET', 'POST'])
 def gestionar_nueva_sucursal():
+    # ... (sin cambios) ...
     form_data = request.form if request.method == 'POST' else {}
     if request.method == 'POST':
         id_sucursal = request.form.get('id_sucursal', '').strip().upper()
@@ -121,25 +167,109 @@ def gestionar_nueva_sucursal():
             response = requests.post(f"{API_BASE_URL}/sucursal", json=payload)
             if response.status_code == 201:
                 flash(f"Sucursal '{nombre_sucursal}' ({id_sucursal}) creada exitosamente.", "success")
-                # Podrías redirigir a una lista de sucursales si existiera, o a la página de inicio
-                return redirect(url_for('pagina_inicio')) 
-            elif response.status_code == 409: # Conflicto (ID o nombre duplicado)
+                return redirect(url_for('gestionar_sucursales_maestras')) 
+            elif response.status_code == 409: 
                  flash(response.json().get("error", f"Error: Ya existe una sucursal con ese ID o nombre."), "error")
             else:
                 error_msg = response.json().get("error", "Error desconocido de la API.")
                 flash(f"Error al crear sucursal (API {response.status_code}): {error_msg}", "error")
         except requests.exceptions.RequestException as e:
             flash(f"Error de conexión con la API al crear sucursal: {e}", "danger")
-        # Si hay error, volver a renderizar el formulario con los datos ingresados
         return render_template('nueva_sucursal.html', current_year=get_current_year(), form_data=form_data)
-
-    # Método GET: mostrar el formulario vacío
     return render_template('nueva_sucursal.html', current_year=get_current_year(), form_data=form_data)
+
+@app.route('/sucursales', methods=['GET'])
+def gestionar_sucursales_maestras():
+    """Muestra la lista de todas las sucursales maestras con opción de editar."""
+    sucursales = []
+    try:
+        response = requests.get(f"{API_BASE_URL}/sucursales_maestras", timeout=5)
+        if response.status_code == 200:
+            sucursales = response.json()
+        else:
+            flash(f"Error al cargar sucursales (API: {response.status_code}).", "danger")
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Error de conexión/API al obtener sucursales para gestión: {e}")
+        flash("Error de conexión al cargar sucursales.", "danger")
+    
+    return render_template('lista_sucursales.html', 
+                           sucursales=sucursales, 
+                           current_year=get_current_year())
+
+@app.route('/sucursal/<string:id_sucursal>/editar', methods=['GET', 'POST'])
+def editar_sucursal_maestra(id_sucursal):
+    """Muestra el formulario para editar una sucursal y procesa la actualización."""
+    id_sucursal_upper = id_sucursal.upper()
+    sucursal_actual = None
+
+    # Para GET, obtener datos de la sucursal para poblar el formulario
+    if request.method == 'GET':
+        try:
+            response = requests.get(f"{API_BASE_URL}/sucursal/{id_sucursal_upper}", timeout=5)
+            if response.status_code == 200:
+                sucursal_actual = response.json()
+            elif response.status_code == 404:
+                flash(f"Sucursal con ID '{id_sucursal_upper}' no encontrada.", "error")
+                return redirect(url_for('gestionar_sucursales_maestras'))
+            else:
+                flash(f"Error al cargar datos de la sucursal (API: {response.status_code}).", "error")
+                return redirect(url_for('gestionar_sucursales_maestras'))
+        except requests.exceptions.RequestException as e:
+            app.logger.error(f"Error de conexión/API al obtener sucursal {id_sucursal_upper} para editar: {e}")
+            flash("Error de conexión al cargar la sucursal.", "danger")
+            return redirect(url_for('gestionar_sucursales_maestras'))
+
+    # Para POST, procesar la actualización
+    if request.method == 'POST':
+        nuevo_nombre_sucursal = request.form.get('nombre_sucursal', '').strip()
+        if not nuevo_nombre_sucursal:
+            flash("El nuevo nombre de la sucursal es obligatorio.", "warning")
+            # Necesitamos repoblar sucursal_actual si hay un error para que el formulario se muestre bien
+            # Si no se pudo obtener antes (en GET), sucursal_actual será None.
+            # Es mejor obtenerlo de nuevo o pasarlo de alguna manera.
+            # Por simplicidad, si falla la validación, se renderiza con los datos del form.
+            return render_template('editar_sucursal.html', 
+                                   sucursal={"id_sucursal": id_sucursal_upper, "nombre_sucursal": nuevo_nombre_sucursal}, # Usar datos del form
+                                   current_year=get_current_year())
+        
+        payload = {"nombre_sucursal": nuevo_nombre_sucursal}
+        try:
+            api_url = f"{API_BASE_URL}/sucursal/{id_sucursal_upper}"
+            response = requests.put(api_url, json=payload) # Usar método PUT
+
+            if response.status_code == 200:
+                flash(f"Sucursal '{id_sucursal_upper}' actualizada exitosamente a '{nuevo_nombre_sucursal}'.", "success")
+                return redirect(url_for('gestionar_sucursales_maestras'))
+            elif response.status_code == 409: # Conflicto por nombre duplicado
+                flash(response.json().get("error", "Error: Nombre de sucursal duplicado."), "error")
+            elif response.status_code == 404:
+                 flash(f"Sucursal '{id_sucursal_upper}' no encontrada para actualizar.", "error")
+            else:
+                error_msg = response.json().get("error", "Error desconocido de la API.")
+                flash(f"Error al actualizar sucursal (API {response.status_code}): {error_msg}", "error")
+        except requests.exceptions.RequestException as e:
+            flash(f"Error de conexión con la API al actualizar sucursal: {e}", "danger")
+        
+        # Si hay error, volver a renderizar el formulario con los datos del form
+        return render_template('editar_sucursal.html', 
+                               sucursal={"id_sucursal": id_sucursal_upper, "nombre_sucursal": nuevo_nombre_sucursal}, 
+                               current_year=get_current_year())
+
+    # Para GET, si sucursal_actual se obtuvo correctamente
+    if sucursal_actual:
+        return render_template('editar_sucursal.html', 
+                               sucursal=sucursal_actual, 
+                               current_year=get_current_year())
+    else:
+        # Si sucursal_actual es None después de un intento fallido de GET, redirigir.
+        # Esto no debería pasar si el manejo de errores en GET funciona.
+        return redirect(url_for('gestionar_sucursales_maestras'))
 
 
 @app.route('/producto/asignar_sucursal', methods=['GET', 'POST'])
 @app.route('/producto/<string:codigo_producto_param>/asignar_sucursal', methods=['GET', 'POST'])
 def gestionar_asignacion_sucursal(codigo_producto_param=None):
+    # ... (sin cambios) ...
     productos_api = []
     sucursales_api = []
     form_data_repopulate = {} 
@@ -202,6 +332,7 @@ def gestionar_asignacion_sucursal(codigo_producto_param=None):
 
 @app.route('/producto/restock_casa_matriz', methods=['GET', 'POST'])
 def pagina_restock_casa_matriz():
+    # ... (sin cambios) ...
     productos_api = []
     try:
         res_prods = requests.get(f"{API_BASE_URL}/productos", timeout=5)
@@ -256,6 +387,7 @@ def pagina_restock_casa_matriz():
 
 @app.route('/buscar_redirect', methods=['GET'])
 def buscar_producto_redirect():
+    # ... (sin cambios) ...
     codigo_producto = request.args.get('codigo_producto')
     if not codigo_producto:
         return redirect(url_for('pagina_inicio'))

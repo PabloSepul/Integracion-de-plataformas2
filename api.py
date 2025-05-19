@@ -2,23 +2,25 @@ from flask import Flask, jsonify, request
 import requests 
 import sqlite3 
 import os
-import logging
+import logging # Importar logging
 
 app = Flask(__name__)
 
-if not app.debug:
+# Configurar logging para la aplicación Flask
+if not app.debug: 
     logging.basicConfig(level=logging.INFO)
     app.logger.setLevel(logging.INFO)
-else:
-    logging.basicConfig(level=logging.DEBUG)
+else: 
+    logging.basicConfig(level=logging.DEBUG) 
     app.logger.setLevel(logging.DEBUG)
+
 
 DATABASE_FILE = 'inventario.db'
 EXCHANGE_RATE_API_KEY = "b13c1920a6582926f6d00078" 
 DEFAULT_TASA_CAMBIO_USD_CLP = 980.0 
 
 def get_db_connection():
-    conn = sqlite3.connect(DATABASE_FILE, check_same_thread=False) 
+    conn = sqlite3.connect(DATABASE_FILE) # No es necesario check_same_thread=False si no hay SSE activos
     conn.row_factory = sqlite3.Row 
     return conn
 
@@ -137,7 +139,36 @@ def obtener_sucursales_maestras():
     cursor.execute("SELECT id_sucursal, nombre_sucursal FROM sucursales_maestras ORDER BY nombre_sucursal")
     sucursales_db = [dict(row) for row in cursor.fetchall()]
     conn.close()
+    app.logger.debug(f"API: Devolviendo sucursales maestras: {sucursales_db}")
     return jsonify(sucursales_db)
+
+@app.route('/api/sucursal/<string:id_sucursal>/productos', methods=['GET'])
+def obtener_productos_por_sucursal(id_sucursal):
+    id_sucursal_upper = id_sucursal.upper()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT nombre_sucursal FROM sucursales_maestras WHERE id_sucursal = ?", (id_sucursal_upper,))
+    sucursal_db = cursor.fetchone()
+    if not sucursal_db:
+        conn.close()
+        return jsonify({"error": "Sucursal no encontrada", "id_sucursal": id_sucursal_upper}), 404
+    cursor.execute('''
+        SELECT p.codigo AS codigo_producto, p.nombre AS nombre_producto, 
+               ps.cantidad, ps.precio_local
+        FROM productos p
+        JOIN productos_sucursales ps ON p.codigo = ps.producto_codigo
+        WHERE ps.sucursal_id = ?
+        ORDER BY p.nombre
+    ''', (id_sucursal_upper,))
+    productos_en_sucursal = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    tasa_actual_usd_clp = obtener_tasa_cambio_actual_usd_clp()
+    return jsonify({
+        "id_sucursal": id_sucursal_upper,
+        "nombre_sucursal": sucursal_db["nombre_sucursal"],
+        "productos": productos_en_sucursal,
+        "tasa_cambio_a_usd": tasa_actual_usd_clp
+    })
 
 @app.route('/api/producto', methods=['POST'])
 def crear_producto():
@@ -175,16 +206,12 @@ def crear_producto():
 
 @app.route('/api/sucursal', methods=['POST'])
 def crear_sucursal_maestra():
-    """Crea una nueva sucursal maestra."""
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
-    
     id_sucursal = request.json.get('id_sucursal', '').strip().upper()
     nombre_sucursal = request.json.get('nombre_sucursal', '').strip()
-
     if not id_sucursal or not nombre_sucursal:
         return jsonify({"error": "El ID y el nombre de la sucursal son requeridos"}), 400
-    
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -193,22 +220,67 @@ def crear_sucursal_maestra():
             (id_sucursal, nombre_sucursal)
         )
         conn.commit()
-        sucursal_creada = {
-            "id_sucursal": id_sucursal,
-            "nombre_sucursal": nombre_sucursal
-        }
+        sucursal_creada = { "id_sucursal": id_sucursal, "nombre_sucursal": nombre_sucursal }
         app.logger.info(f"Sucursal '{nombre_sucursal}' ({id_sucursal}) creada exitosamente.")
-        return jsonify(sucursal_creada), 201 # 201 Created
+        return jsonify(sucursal_creada), 201
     except sqlite3.IntegrityError: 
-        # Puede ser por ID duplicado (PRIMARY KEY) o nombre duplicado (UNIQUE)
         app.logger.warning(f"Intento de crear sucursal con ID '{id_sucursal}' o nombre '{nombre_sucursal}' duplicado.")
-        return jsonify({"error": f"Ya existe una sucursal con el ID '{id_sucursal}' o el nombre '{nombre_sucursal}'"}), 409 # 409 Conflict
+        return jsonify({"error": f"Ya existe una sucursal con el ID '{id_sucursal}' o el nombre '{nombre_sucursal}'"}), 409
     except Exception as e:
         app.logger.error(f"Error inesperado al crear sucursal: {e}")
         return jsonify({"error": "Error interno del servidor al crear la sucursal"}), 500
     finally:
         conn.close()
 
+@app.route('/api/sucursal/<string:id_sucursal>', methods=['GET'])
+def obtener_info_sucursal(id_sucursal):
+    id_sucursal_upper = id_sucursal.upper()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id_sucursal, nombre_sucursal FROM sucursales_maestras WHERE id_sucursal = ?", (id_sucursal_upper,))
+    sucursal_db = cursor.fetchone()
+    conn.close()
+    if not sucursal_db:
+        return jsonify({"error": "Sucursal no encontrada", "id_sucursal": id_sucursal_upper}), 404
+    return jsonify(dict(sucursal_db))
+
+@app.route('/api/sucursal/<string:id_sucursal>', methods=['PUT'])
+def actualizar_sucursal_maestra(id_sucursal):
+    id_sucursal_upper = id_sucursal.upper()
+    if not request.json:
+        return jsonify({"error": "La solicitud debe ser JSON"}), 400
+    
+    nuevo_nombre_sucursal = request.json.get('nombre_sucursal', '').strip()
+    if not nuevo_nombre_sucursal:
+        return jsonify({"error": "El nuevo nombre de la sucursal es requerido"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id_sucursal FROM sucursales_maestras WHERE id_sucursal = ?", (id_sucursal_upper,))
+        if not cursor.fetchone():
+            return jsonify({"error": "Sucursal no encontrada para actualizar"}), 404
+
+        cursor.execute(
+            "UPDATE sucursales_maestras SET nombre_sucursal = ? WHERE id_sucursal = ?",
+            (nuevo_nombre_sucursal, id_sucursal_upper)
+        )
+        conn.commit()
+        
+        if cursor.rowcount == 0:
+            return jsonify({"error": "Sucursal no encontrada durante la actualización"}), 404
+
+        sucursal_actualizada = {"id_sucursal": id_sucursal_upper, "nombre_sucursal": nuevo_nombre_sucursal}
+        app.logger.info(f"Sucursal '{id_sucursal_upper}' actualizada a nombre '{nuevo_nombre_sucursal}'.")
+        return jsonify(sucursal_actualizada), 200
+    except sqlite3.IntegrityError: 
+        app.logger.warning(f"Intento de actualizar sucursal '{id_sucursal_upper}' a un nombre duplicado '{nuevo_nombre_sucursal}'.")
+        return jsonify({"error": f"Ya existe otra sucursal con el nombre '{nuevo_nombre_sucursal}'"}), 409
+    except Exception as e:
+        app.logger.error(f"Error inesperado al actualizar sucursal: {e}")
+        return jsonify({"error": "Error interno del servidor al actualizar la sucursal"}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/producto/<string:codigo_producto>/restock_matriz', methods=['POST'])
 def restock_casa_matriz(codigo_producto):
@@ -348,4 +420,4 @@ if __name__ == '__main__':
     init_db() 
     app.logger.info(f"Base de datos '{DATABASE_FILE}' inicializada y lista para usarse.")
     
-    app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False)
+    app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False, threaded=True)
