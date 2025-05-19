@@ -1,11 +1,14 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, Response, stream_with_context
 import requests
 import datetime
 import logging
+import json 
+import time 
 
 app = Flask(__name__)
 app.secret_key = 'tu_super_secreto_aqui_cambialo_por_algo_seguro'
 
+# Configurar logging
 if not app.debug:
     logging.basicConfig(level=logging.INFO)
     app.logger.setLevel(logging.INFO)
@@ -15,7 +18,7 @@ else:
 
 API_BASE_URL = "http://127.0.0.1:5001/api"
 DEFAULT_TASA_CAMBIO_USD_CLP = 980.0 
-ID_SUCURSAL_TIENDA = "S03" # Asumimos que Concepción es S03
+ID_SUCURSAL_TIENDA = "S03" 
 
 def get_current_year():
     return datetime.datetime.now().year
@@ -82,7 +85,6 @@ def pagina_inicio():
 
 @app.route('/buscar', methods=['POST'])
 def buscar_producto():
-    # ... (sin cambios) ...
     codigo_producto_buscado = request.form.get('codigo_producto', '').strip().upper()
     if not codigo_producto_buscado:
         flash("Por favor, ingrese un código de producto.", "warning")
@@ -114,7 +116,6 @@ def buscar_producto():
 
 @app.route('/producto/nuevo', methods=['GET', 'POST'])
 def gestionar_nuevo_producto():
-    # ... (sin cambios) ...
     form_data = request.form if request.method == 'POST' else {}
     if request.method == 'POST':
         codigo_producto = request.form.get('codigo_producto', '').strip().upper()
@@ -152,7 +153,6 @@ def gestionar_nuevo_producto():
 
 @app.route('/sucursal/nueva', methods=['GET', 'POST'])
 def gestionar_nueva_sucursal():
-    # ... (sin cambios) ...
     form_data = request.form if request.method == 'POST' else {}
     if request.method == 'POST':
         id_sucursal = request.form.get('id_sucursal', '').strip().upper()
@@ -183,7 +183,6 @@ def gestionar_nueva_sucursal():
 
 @app.route('/sucursales', methods=['GET'])
 def gestionar_sucursales_maestras():
-    # ... (sin cambios) ...
     sucursales = []
     try:
         response = requests.get(f"{API_BASE_URL}/sucursales_maestras", timeout=5)
@@ -201,7 +200,6 @@ def gestionar_sucursales_maestras():
 
 @app.route('/sucursal/<string:id_sucursal>/editar', methods=['GET', 'POST'])
 def editar_sucursal_maestra(id_sucursal):
-    # ... (sin cambios) ...
     id_sucursal_upper = id_sucursal.upper()
     sucursal_actual = None
     if request.method == 'GET':
@@ -259,7 +257,6 @@ def editar_sucursal_maestra(id_sucursal):
 
 @app.route('/producto/<string:codigo_producto>/editar', methods=['GET', 'POST'])
 def editar_producto(codigo_producto):
-    # ... (sin cambios) ...
     codigo_producto_upper = codigo_producto.upper()
     producto_actual = None
     if request.method == 'POST':
@@ -335,7 +332,6 @@ def editar_producto(codigo_producto):
 @app.route('/producto/asignar_sucursal', methods=['GET', 'POST'])
 @app.route('/producto/<string:codigo_producto_param>/asignar_sucursal', methods=['GET', 'POST'])
 def gestionar_asignacion_sucursal(codigo_producto_param=None):
-    # ... (sin cambios) ...
     productos_api = []
     sucursales_api = []
     form_data_repopulate = {} 
@@ -398,7 +394,6 @@ def gestionar_asignacion_sucursal(codigo_producto_param=None):
 
 @app.route('/producto/restock_casa_matriz', methods=['GET', 'POST'])
 def pagina_restock_casa_matriz():
-    # ... (sin cambios) ...
     productos_api = []
     try:
         res_prods = requests.get(f"{API_BASE_URL}/productos", timeout=5)
@@ -453,7 +448,6 @@ def pagina_restock_casa_matriz():
 
 @app.route('/sucursal/<string:id_sucursal>/producto/<string:codigo_producto>/quitar', methods=['POST'])
 def quitar_producto_de_sucursal_app(id_sucursal, codigo_producto):
-    # ... (sin cambios) ...
     try:
         api_url = f"{API_BASE_URL}/sucursal/{id_sucursal.upper()}/producto/{codigo_producto.upper()}/quitar"
         response = requests.post(api_url)
@@ -474,7 +468,6 @@ def quitar_producto_de_sucursal_app(id_sucursal, codigo_producto):
 
 @app.route('/sucursal/<string:id_sucursal>/producto/<string:codigo_producto>/retornar', methods=['POST'])
 def retornar_stock_a_matriz_app(id_sucursal, codigo_producto):
-    # ... (sin cambios) ...
     try:
         api_url = f"{API_BASE_URL}/sucursal/{id_sucursal.upper()}/producto/{codigo_producto.upper()}/retornar_stock"
         response = requests.post(api_url)
@@ -493,20 +486,17 @@ def retornar_stock_a_matriz_app(id_sucursal, codigo_producto):
         
     return redirect(url_for('pagina_inicio', sucursal_id=id_sucursal))
 
-# --- Nuevas Rutas para la Tienda Online de Sucursal ---
 @app.route('/tienda/sucursal/<string:id_sucursal>')
 def tienda_sucursal(id_sucursal):
-    """Muestra los productos disponibles para la 'compra' en una sucursal específica."""
     id_sucursal_upper = id_sucursal.upper()
     datos_tienda = None
     error_api = None
 
     try:
-        api_url = f"{API_BASE_URL}/sucursal/{id_sucursal_upper}/productos" # Reutiliza el endpoint existente
+        api_url = f"{API_BASE_URL}/sucursal/{id_sucursal_upper}/productos" 
         response = requests.get(api_url, timeout=5)
         if response.status_code == 200:
             datos_tienda = response.json()
-            # Filtrar productos con stock > 0 para la tienda
             if datos_tienda and "productos" in datos_tienda:
                 datos_tienda["productos"] = [p for p in datos_tienda["productos"] if p.get("cantidad", 0) > 0]
         elif response.status_code == 404:
@@ -522,28 +512,21 @@ def tienda_sucursal(id_sucursal):
 
     return render_template('tienda_sucursal.html',
                            datos_tienda=datos_tienda,
-                           id_sucursal_tienda=id_sucursal_upper, # Pasar el ID para los formularios
+                           id_sucursal_tienda=id_sucursal_upper, 
                            current_year=get_current_year(),
                            error_api=error_api)
 
 @app.route('/tienda/comprar/<string:id_sucursal>/<string:codigo_producto>', methods=['POST'])
 def comprar_producto_tienda(id_sucursal, codigo_producto):
-    """Procesa la 'compra' de un producto de una sucursal."""
     id_sucursal_upper = id_sucursal.upper()
     codigo_producto_upper = codigo_producto.upper()
-    
-    # Aquí podrías obtener la cantidad del formulario si permites comprar más de uno a la vez.
-    # Por ahora, asumimos que se compra 1 unidad.
-    # payload = {"cantidad_comprada": 1} # La API actual no espera payload para /comprar
-
     try:
         api_url = f"{API_BASE_URL}/sucursal/{id_sucursal_upper}/producto/{codigo_producto_upper}/comprar"
-        # Este endpoint en la API actual no espera un payload JSON, solo descuenta 1.
         response = requests.post(api_url) 
 
         if response.status_code == 200:
             flash(response.json().get("mensaje", "¡Compra exitosa!"), "success")
-        elif response.status_code == 400: # Ej. Stock insuficiente
+        elif response.status_code == 400: 
             flash(response.json().get("error", "No se pudo completar la compra."), "warning")
         elif response.status_code == 404:
             flash("Producto o sucursal no encontrado para la compra.", "error")
@@ -555,13 +538,11 @@ def comprar_producto_tienda(id_sucursal, codigo_producto):
         app.logger.error(f"Error de conexión/API al comprar producto: {e}")
         flash("Error de conexión al procesar la compra.", "danger")
     
-    # Redirigir de vuelta a la página de la tienda de esa sucursal
     return redirect(url_for('tienda_sucursal', id_sucursal=id_sucursal_upper))
 
 
 @app.route('/buscar_redirect', methods=['GET'])
 def buscar_producto_redirect():
-    # ... (sin cambios) ...
     codigo_producto = request.args.get('codigo_producto')
     if not codigo_producto:
         return redirect(url_for('pagina_inicio'))
@@ -573,6 +554,56 @@ def buscar_producto_redirect():
     response_view = buscar_producto()
     request.form = original_form 
     return response_view
+
+# --- Ruta para el stream de notificaciones SSE hacia el frontend ---
+# Esta ruta es la que el JavaScript del frontend escuchará
+@app.route('/events/stock_notifications')
+def stock_notifications_stream():
+    @stream_with_context 
+    def generate_notifications():
+        app.logger.info("APP_SSE_PROXY: Cliente frontend conectado al stream de notificaciones.")
+        retry_delay = 1  # Segundos para esperar antes de reintentar la conexión a la API
+        
+        while True: 
+            try:
+                api_sse_url = f"{API_BASE_URL}/stream_stock_alerts" # El endpoint SSE de tu api.py
+                app.logger.info(f"APP_SSE_PROXY: Intentando conectar al stream de la API: {api_sse_url}")
+                
+                # Usar un timeout para la conexión inicial y otro para la lectura del stream
+                with requests.get(api_sse_url, stream=True, timeout=(5, 60)) as r: # (connect_timeout, read_timeout para el stream)
+                    r.raise_for_status() # Verificar si la conexión inicial fue exitosa
+                    app.logger.info(f"APP_SSE_PROXY: Conectado exitosamente al stream de la API: {api_sse_url}")
+                    retry_delay = 1 # Resetear delay de reintento al conectar exitosamente
+
+                    for line in r.iter_lines(decode_unicode=True):
+                        # Los eventos SSE vienen como "data: <json_string>" o ": keep-alive"
+                        if not line: # Ignorar líneas vacías que a veces envían los keep-alives
+                            continue
+                        
+                        # Reenviar la línea completa tal como llega de la API
+                        # Esto incluye tanto "data: ..." como ": keep-alive"
+                        app.logger.debug(f"APP_SSE_PROXY: Línea recibida de API y reenviando: '{line}'")
+                        yield f"{line}\n\n" # Asegurar doble salto de línea
+                
+                # Si el bucle for termina, significa que r.iter_lines() terminó (la conexión con api.py se cerró)
+                app.logger.info("APP_SSE_PROXY: Stream de la API cerrado (iter_lines completado).")
+            
+            except requests.exceptions.ConnectionError as e:
+                app.logger.error(f"APP_SSE_PROXY: Error de conexión al stream SSE de la API: {e}")
+            except requests.exceptions.HTTPError as e:
+                 app.logger.error(f"APP_SSE_PROXY: Error HTTP del stream SSE de la API: {e}. Status: {e.response.status_code if e.response else 'N/A'}")
+            except requests.exceptions.Timeout:
+                app.logger.error("APP_SSE_PROXY: Timeout al conectar/leer del stream SSE de la API.")
+            except Exception as e: # Captura más genérica para otros errores de requests o inesperados
+                app.logger.error(f"APP_SSE_PROXY: Error inesperado en el stream de notificaciones (conexión a API): {type(e).__name__} - {e}")
+            
+            # Si hay un error o el stream se cierra, esperar y reintentar.
+            app.logger.info(f"APP_SSE_PROXY: Esperando {retry_delay}s antes de reintentar conexión al stream de la API.")
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, 30) # Backoff exponencial hasta 30s
+
+    return Response(generate_notifications(), mimetype='text/event-stream')
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)

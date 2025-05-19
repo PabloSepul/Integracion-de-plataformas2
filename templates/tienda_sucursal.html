@@ -19,9 +19,40 @@
             transform: translateY(-4px);
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
         }
+
+        #sse-purchase-popups-container {
+            position: fixed;
+            bottom: 20px; 
+            left: 20px;  
+            z-index: 1050;
+            width: 320px; 
+            display: flex;
+            flex-direction: column-reverse; 
+        }
+        .purchase-popup {
+            background-color: #10b981; 
+            color: white;
+            padding: 0.75rem 1rem; 
+            margin-top: 0.5rem; 
+            border-radius: 0.5rem; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            opacity: 0;
+            transform: translateY(20px); 
+            transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+            font-size: 0.875rem; 
+        }
+        .purchase-popup.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .purchase-popup strong {
+            font-weight: 600; 
+        }
     </style>
 </head>
 <body class="bg-gradient-to-br from-slate-900 to-slate-700 text-gray-100 min-h-screen p-4 md:p-8">
+
+    <div id="sse-purchase-popups-container"></div>
 
     <div class="container mx-auto max-w-6xl">
         <div class="mb-6">
@@ -58,9 +89,6 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                     {% for prod in datos_tienda.productos %}
                         <div class="product-card bg-slate-800 rounded-lg shadow-lg overflow-hidden flex flex-col">
-                            {# Puedes añadir una imagen de producto aquí si tuvieras URLs #}
-                            {# <img src="https://placehold.co/600x400/334155/e2e8f0?text={{ prod.nombre_producto | urlencode }}" alt="{{ prod.nombre_producto }}" class="w-full h-48 object-cover"> #}
-                            
                             <div class="p-5 flex flex-col flex-grow">
                                 <h3 class="text-lg font-semibold text-sky-300 mb-1">{{ prod.nombre_producto }}</h3>
                                 <p class="text-xs text-slate-400 mb-2">Código: {{ prod.codigo_producto }}</p>
@@ -70,12 +98,12 @@
                                 </p>
                                 <p class="text-sm text-slate-300 mb-3">
                                     Stock disponible: 
-                                    <span class="font-semibold {% if prod.cantidad <= 5 %}text-red-400{% elif prod.cantidad <= 10 %}text-yellow-400{% else %}text-green-400{% endif %}">
+                                    <span id="stock-{{ datos_tienda.id_sucursal }}-{{ prod.codigo_producto }}" class="font-semibold {% if prod.cantidad <= 5 %}text-red-400{% elif prod.cantidad <= 10 %}text-yellow-400{% else %}text-green-400{% endif %}">
                                         {{ prod.cantidad }} unidades
                                     </span>
                                 </p>
                                 
-                                <div class="mt-auto"> {# Empuja el botón hacia abajo #}
+                                <div class="mt-auto"> 
                                     <form action="{{ url_for('comprar_producto_tienda', id_sucursal=datos_tienda.id_sucursal, codigo_producto=prod.codigo_producto) }}" method="POST">
                                         <button type="submit" 
                                                 class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 px-4 rounded-md transition duration-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50"
@@ -95,7 +123,7 @@
                 </div>
             {% endif %}
         
-        {% elif not error_api %} {# Si datos_tienda es None pero no hubo error de API (ej. sucursal no encontrada por ID inválido) #}
+        {% elif not error_api %}
              <div class="text-center py-10">
                 <i class="fas fa-question-circle text-4xl text-slate-500 mb-3"></i>
                 <p class="text-slate-400 italic text-lg">Información de la tienda no disponible.</p>
@@ -106,5 +134,105 @@
             <p>&copy; {{ current_year }} Mañana es feriado S.A. - Sistema de Integración de Plataformas</p>
         </footer>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const ID_SUCURSAL_ACTUAL_TIENDA = "{{ datos_tienda.id_sucursal if datos_tienda else '' }}";
+            const popupsContainer = document.getElementById('sse-purchase-popups-container');
+            const MAX_POPUPS = 3; 
+
+            if (ID_SUCURSAL_ACTUAL_TIENDA && popupsContainer) {
+                console.log(`TIENDA_PAGE: Conectando a SSE para sucursal: ${ID_SUCURSAL_ACTUAL_TIENDA}`);
+                const eventSource = new EventSource("{{ url_for('stock_notifications_stream') }}");
+
+                eventSource.onopen = function() {
+                    console.log("TIENDA_PAGE: Conexión SSE abierta.");
+                };
+
+                eventSource.onmessage = function (event) {
+                    console.log("TIENDA_PAGE: Mensaje SSE recibido:", event.data);
+                    try {
+                        const eventData = JSON.parse(event.data);
+
+                        // Manejar eventos de compra_exitosa para la sucursal actual
+                        if (eventData && eventData.type === "compra_exitosa" && eventData.id_sucursal === ID_SUCURSAL_ACTUAL_TIENDA) {
+                            showPurchasePopup(eventData);
+                            const stockElementId = `stock-${eventData.id_sucursal}-${eventData.codigo_producto}`;
+                            const stockElement = document.getElementById(stockElementId);
+                            if (stockElement) {
+                                stockElement.textContent = `${eventData.stock_restante_sucursal} unidades`;
+                                stockElement.className = 'font-semibold '; 
+                                if (eventData.stock_restante_sucursal <= 0) {
+                                    stockElement.classList.add('text-red-400');
+                                    const button = stockElement.closest('.product-card').querySelector('button[type="submit"]');
+                                    if(button) {
+                                        button.disabled = true;
+                                        button.setAttribute('title', 'Producto agotado');
+                                        button.classList.add('opacity-50', 'cursor-not-allowed');
+                                    }
+                                } else if (eventData.stock_restante_sucursal <= 5) {
+                                    stockElement.classList.add('text-red-400');
+                                } else if (eventData.stock_restante_sucursal <= 10) {
+                                    stockElement.classList.add('text-yellow-400');
+                                } else {
+                                    stockElement.classList.add('text-green-400');
+                                }
+                            } else {
+                                console.warn(`TIENDA_PAGE: Elemento de stock no encontrado: ${stockElementId}`);
+                            }
+                        }
+                        // Aquí podrías añadir lógica para manejar otros tipos de eventos si es necesario
+                        // Por ejemplo, si quieres mostrar las alertas de stock CERO de casa matriz también:
+                        // else if (eventData && eventData.type === "stock_cero_matriz") {
+                        //    showGenericStockAlert(eventData.mensaje); // Necesitarías una función similar a showPurchasePopup
+                        // }
+                        
+                    } catch (e) {
+                        console.error("TIENDA_PAGE: Error al parsear datos del evento SSE:", e);
+                    }
+                };
+
+                eventSource.onerror = function (err) {
+                    console.error("TIENDA_PAGE: Error en EventSource:", err);
+                };
+
+                function showPurchasePopup(data) {
+                    const popup = document.createElement('div');
+                    popup.className = 'purchase-popup';
+                    
+                    const line1 = document.createElement('p');
+                    line1.innerHTML = `<i class="fas fa-check-circle mr-2"></i> ${data.mensaje_compra}`;
+                    
+                    const line2 = document.createElement('p');
+                    line2.className = 'mt-1';
+                    line2.innerHTML = `<strong><i class="fas fa-box-open mr-1"></i> ${data.mensaje_stock}</strong>`;
+                    
+                    popup.appendChild(line1);
+                    popup.appendChild(line2);
+                    
+                    popupsContainer.appendChild(popup); 
+
+                    popup.offsetHeight; 
+                    popup.classList.add('show');
+
+                    while (popupsContainer.children.length > MAX_POPUPS) {
+                        popupsContainer.removeChild(popupsContainer.firstChild); 
+                    }
+
+                    setTimeout(() => {
+                        popup.classList.remove('show');
+                        setTimeout(() => {
+                            if (popup.parentNode === popupsContainer) {
+                               popupsContainer.removeChild(popup);
+                            }
+                        }, 500); 
+                    }, 6000); 
+                }
+            } else {
+                if (!ID_SUCURSAL_ACTUAL_TIENDA) console.warn("TIENDA_PAGE: ID_SUCURSAL_ACTUAL_TIENDA no definido. SSE no se activará.");
+                if (!popupsContainer) console.warn("TIENDA_PAGE: Contenedor de pop-ups SSE no encontrado.");
+            }
+        });
+    </script>
 </body>
 </html>

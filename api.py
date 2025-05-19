@@ -1,23 +1,21 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 import requests 
 import sqlite3 
 import os
-import logging 
+import time 
+import queue 
+import json 
+import threading 
+# from werkzeug.serving import حوالي # Esta línea no es necesaria y 'حوالي' no está definido
 
 app = Flask(__name__)
-
-# Configurar logging
-if not app.debug: 
-    logging.basicConfig(level=logging.INFO)
-    app.logger.setLevel(logging.INFO)
-else: 
-    logging.basicConfig(level=logging.DEBUG) 
-    app.logger.setLevel(logging.DEBUG)
-
 
 DATABASE_FILE = 'inventario.db'
 EXCHANGE_RATE_API_KEY = "b13c1920a6582926f6d00078" 
 DEFAULT_TASA_CAMBIO_USD_CLP = 980.0 
+
+sse_listeners = []
+sse_listeners_lock = threading.Lock() 
 
 def get_db_connection():
     conn = sqlite3.connect(DATABASE_FILE, check_same_thread=False) 
@@ -69,7 +67,7 @@ def init_db():
 
 def obtener_tasa_cambio_actual_usd_clp():
     moneda_local_iso = "CLP"
-    if not EXCHANGE_RATE_API_KEY or EXCHANGE_RATE_API_KEY == "TU_API_KEY_AQUI":
+    if not EXCHANGE_RATE_API_KEY or EXCHANGE_RATE_API_KEY == "TU_API_KEY_AQUI": # Placeholder check
         app.logger.error("API Key para ExchangeRate-API no configurada. Usando valor por defecto.")
         return DEFAULT_TASA_CAMBIO_USD_CLP
     api_url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/latest/USD"
@@ -95,8 +93,21 @@ def obtener_tasa_cambio_actual_usd_clp():
         app.logger.error(f"Error inesperado en obtener_tasa_cambio_actual_usd_clp: {type(e).__name__} - {e}. Usando valor por defecto.")
         return DEFAULT_TASA_CAMBIO_USD_CLP
 
+def broadcast_stock_alert(evento_json_str):
+    with sse_listeners_lock:
+        app.logger.debug(f"API_SSE_BROADCAST: Transmitiendo a {len(sse_listeners)} listeners. Evento: {evento_json_str}")
+        for listener_queue in list(sse_listeners): 
+            try:
+                listener_queue.put_nowait(evento_json_str)
+            except queue.Full:
+                app.logger.warning(f"API_SSE_BROADCAST: Cola de un listener llena. Evento no enviado a ese listener.")
+            except Exception as e: 
+                app.logger.error(f"API_SSE_BROADCAST: Error al poner en cola de listener: {e}")
+
+
 @app.route('/api/producto/<string:codigo_producto>', methods=['GET'])
 def obtener_info_producto(codigo_producto):
+    # ... (sin cambios) ...
     producto_codigo_upper = codigo_producto.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -115,16 +126,15 @@ def obtener_info_producto(codigo_producto):
     conn.close()
     tasa_actual_usd_clp = obtener_tasa_cambio_actual_usd_clp()
     respuesta = {
-        "codigo_producto": producto_db["codigo"], 
-        "nombre_producto": producto_db["nombre"],
+        "codigo_producto": producto_db["codigo"], "nombre_producto": producto_db["nombre"],
         "stock_casa_matriz": producto_db["stock_casa_matriz"],
-        "sucursales": sucursales_info, 
-        "tasa_cambio_a_usd": tasa_actual_usd_clp
+        "sucursales": sucursales_info, "tasa_cambio_a_usd": tasa_actual_usd_clp
     }
     return jsonify(respuesta)
 
 @app.route('/api/productos', methods=['GET'])
 def obtener_todos_los_productos():
+    # ... (sin cambios) ...
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT codigo, nombre FROM productos ORDER BY nombre")
@@ -134,16 +144,17 @@ def obtener_todos_los_productos():
 
 @app.route('/api/sucursales_maestras', methods=['GET'])
 def obtener_sucursales_maestras():
+    # ... (sin cambios) ...
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT id_sucursal, nombre_sucursal FROM sucursales_maestras ORDER BY nombre_sucursal")
     sucursales_db = [dict(row) for row in cursor.fetchall()]
     conn.close()
-    app.logger.debug(f"API: Devolviendo sucursales maestras: {sucursales_db}")
     return jsonify(sucursales_db)
 
 @app.route('/api/sucursal/<string:id_sucursal>/productos', methods=['GET'])
 def obtener_productos_por_sucursal(id_sucursal):
+    # ... (sin cambios) ...
     id_sucursal_upper = id_sucursal.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -157,7 +168,7 @@ def obtener_productos_por_sucursal(id_sucursal):
                ps.cantidad, ps.precio_local
         FROM productos p
         JOIN productos_sucursales ps ON p.codigo = ps.producto_codigo
-        WHERE ps.sucursal_id = ? AND ps.cantidad > 0 -- Solo productos con stock en la sucursal
+        WHERE ps.sucursal_id = ? AND ps.cantidad > 0 
         ORDER BY p.nombre
     ''', (id_sucursal_upper,))
     productos_en_sucursal = [dict(row) for row in cursor.fetchall()]
@@ -172,6 +183,7 @@ def obtener_productos_por_sucursal(id_sucursal):
 
 @app.route('/api/producto', methods=['POST'])
 def crear_producto():
+    # ... (modificado para usar broadcast_stock_alert si el stock es 0) ...
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
     codigo_producto = request.json.get('codigo_producto', '').strip().upper()
@@ -192,11 +204,19 @@ def crear_producto():
             (codigo_producto, nombre_producto, stock_casa_matriz)
         )
         conn.commit()
+        if stock_casa_matriz == 0: # Si se crea con stock 0, también es una alerta
+            evento_alerta = {
+                "type": "stock_cero_matriz", # Tipo de evento específico para casa matriz
+                "codigo_producto": codigo_producto,
+                "nombre_producto": nombre_producto,
+                "mensaje": f"¡ALERTA! Producto '{nombre_producto}' ({codigo_producto}) necesita restock en casa matriz (creado con stock 0)."
+            }
+            broadcast_stock_alert(json.dumps(evento_alerta))
+            app.logger.info(f"Evento de stock cero en MATRIZ BROADCAST para {codigo_producto}")
+
         producto_creado = {
-            "codigo_producto": codigo_producto, 
-            "nombre_producto": nombre_producto,
-            "stock_casa_matriz": stock_casa_matriz, 
-            "sucursales": [] 
+            "codigo_producto": codigo_producto, "nombre_producto": nombre_producto,
+            "stock_casa_matriz": stock_casa_matriz, "sucursales": [] 
         }
         return jsonify(producto_creado), 201 
     except sqlite3.IntegrityError: 
@@ -206,6 +226,7 @@ def crear_producto():
 
 @app.route('/api/producto/<string:codigo_producto>', methods=['PUT'])
 def actualizar_producto(codigo_producto):
+    # ... (sin cambios) ...
     codigo_producto_upper = codigo_producto.upper()
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
@@ -221,22 +242,29 @@ def actualizar_producto(codigo_producto):
         if not producto_actual:
             conn.close()
             return jsonify({"error": "Producto no encontrado para actualizar"}), 404
+        
+        stock_anterior_casa_matriz = producto_actual["stock_casa_matriz"]
+        nombre_producto_actual = producto_actual["nombre"]
+
         campos_a_actualizar = []
         valores_a_actualizar = []
         if nuevo_nombre:
             campos_a_actualizar.append("nombre = ?")
             valores_a_actualizar.append(nuevo_nombre)
+        
+        nuevo_stock_casa_matriz_val = None # Para la alerta SSE
         if stock_casa_matriz_str is not None:
             try:
-                nuevo_stock_casa_matriz = int(stock_casa_matriz_str)
-                if nuevo_stock_casa_matriz < 0:
+                nuevo_stock_casa_matriz_val = int(stock_casa_matriz_str)
+                if nuevo_stock_casa_matriz_val < 0:
                     conn.close()
                     return jsonify({"error": "El stock en casa matriz no puede ser negativo"}), 400
                 campos_a_actualizar.append("stock_casa_matriz = ?")
-                valores_a_actualizar.append(nuevo_stock_casa_matriz)
+                valores_a_actualizar.append(nuevo_stock_casa_matriz_val)
             except ValueError:
                 conn.close()
                 return jsonify({"error": "El stock en casa matriz debe ser un número entero"}), 400
+        
         if not campos_a_actualizar: 
             conn.close()
             return jsonify({"error": "No se proporcionaron campos para actualizar"}), 400
@@ -245,6 +273,18 @@ def actualizar_producto(codigo_producto):
         app.logger.debug(f"Query de actualización de producto: {query_actualizacion} con valores {valores_a_actualizar}")
         cursor.execute(query_actualizacion, tuple(valores_a_actualizar))
         conn.commit()
+
+        # Generar alerta si el stock de casa matriz llega a 0
+        if nuevo_stock_casa_matriz_val == 0 and stock_anterior_casa_matriz > 0:
+            evento_alerta = {
+                "type": "stock_cero_matriz",
+                "codigo_producto": codigo_producto_upper,
+                "nombre_producto": nuevo_nombre if nuevo_nombre else nombre_producto_actual,
+                "mensaje": f"¡ALERTA! Producto '{nuevo_nombre if nuevo_nombre else nombre_producto_actual}' ({codigo_producto_upper}) ha alcanzado 0 stock en casa matriz (editado)."
+            }
+            broadcast_stock_alert(json.dumps(evento_alerta))
+            app.logger.info(f"Evento de stock cero en MATRIZ BROADCAST para {codigo_producto_upper} (editado).")
+
         if cursor.rowcount == 0:
             conn.close()
             return jsonify({"error": "Producto no encontrado durante la actualización (no se afectaron filas)"}), 404
@@ -253,15 +293,15 @@ def actualizar_producto(codigo_producto):
         conn.close()
         app.logger.info(f"Producto '{codigo_producto_upper}' actualizado exitosamente.")
         return jsonify(dict(producto_actualizado_db)), 200
-    except sqlite3.Error as e: # Captura general para errores de SQLite
+    except sqlite3.Error as e: 
         conn.rollback()
         app.logger.error(f"Error de base de datos al actualizar producto: {e}")
         if conn: conn.close()
         return jsonify({"error": "Error interno de la base de datos al actualizar el producto"}), 500
 
-
 @app.route('/api/sucursal', methods=['POST'])
 def crear_sucursal_maestra():
+    # ... (sin cambios) ...
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
     id_sucursal = request.json.get('id_sucursal', '').strip().upper()
@@ -290,6 +330,7 @@ def crear_sucursal_maestra():
 
 @app.route('/api/sucursal/<string:id_sucursal>', methods=['GET'])
 def obtener_info_sucursal(id_sucursal):
+    # ... (sin cambios) ...
     id_sucursal_upper = id_sucursal.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -302,6 +343,7 @@ def obtener_info_sucursal(id_sucursal):
 
 @app.route('/api/sucursal/<string:id_sucursal>', methods=['PUT'])
 def actualizar_sucursal_maestra(id_sucursal):
+    # ... (sin cambios) ...
     id_sucursal_upper = id_sucursal.upper()
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
@@ -343,7 +385,7 @@ def actualizar_sucursal_maestra(id_sucursal):
 
 @app.route('/api/producto/<string:codigo_producto>/restock_matriz', methods=['POST'])
 def restock_casa_matriz(codigo_producto):
-    # ... (sin cambios) ...
+    # ... (modificado para usar broadcast_stock_alert si el stock era 0 y ahora es > 0) ...
     codigo_producto_upper = codigo_producto.upper()
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
@@ -357,13 +399,14 @@ def restock_casa_matriz(codigo_producto):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT stock_casa_matriz FROM productos WHERE codigo = ?", (codigo_producto_upper,))
+        cursor.execute("SELECT codigo, nombre, stock_casa_matriz FROM productos WHERE codigo = ?", (codigo_producto_upper,))
         producto_db = cursor.fetchone()
         if not producto_db:
             conn.close() 
             return jsonify({"error": "Producto no encontrado"}), 404
         
         stock_actual = producto_db["stock_casa_matriz"]
+        nombre_producto = producto_db["nombre"]
         nuevo_stock = stock_actual + cantidad_a_agregar
         
         cursor.execute(
@@ -371,13 +414,17 @@ def restock_casa_matriz(codigo_producto):
             (nuevo_stock, codigo_producto_upper)
         )
         conn.commit()
-        
+
+        # Si el stock era 0 y ahora es > 0, podríamos enviar un evento de "restock_exitoso"
+        # Por ahora, nos enfocamos en la alerta de stock cero.
+        # Si el stock llega a cero por otra vía y luego se hace restock, la alerta de stock cero ya se habría enviado.
+
         cursor.execute("SELECT codigo, nombre, stock_casa_matriz FROM productos WHERE codigo = ?", (codigo_producto_upper,))
         producto_actualizado_db = cursor.fetchone()
         conn.close() 
 
         return jsonify({
-            "mensaje": f"Stock de '{codigo_producto_upper}' en casa matriz actualizado a {nuevo_stock}.",
+            "mensaje": f"Stock de '{codigo_producto_upper}' ({nombre_producto}) en casa matriz actualizado a {nuevo_stock}.",
             "producto": dict(producto_actualizado_db)
         }), 200
         
@@ -389,7 +436,7 @@ def restock_casa_matriz(codigo_producto):
 
 @app.route('/api/producto/<string:codigo_producto>/sucursal', methods=['POST'])
 def agregar_o_actualizar_producto_en_sucursal(codigo_producto):
-    # ... (sin cambios) ...
+    # ... (modificado para usar broadcast_stock_alert para stock CERO en casa matriz) ...
     codigo_producto_upper = codigo_producto.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -401,6 +448,7 @@ def agregar_o_actualizar_producto_en_sucursal(codigo_producto):
             return jsonify({"error": "Producto no encontrado"}), 404
         
         stock_anterior_casa_matriz = producto_db["stock_casa_matriz"]
+        nombre_producto = producto_db["nombre"]
         
         if not request.json: 
             conn.close()
@@ -440,6 +488,16 @@ def agregar_o_actualizar_producto_en_sucursal(codigo_producto):
             }), 400 
 
         cursor.execute("UPDATE productos SET stock_casa_matriz = ? WHERE codigo = ?", (nuevo_stock_casa_matriz, codigo_producto_upper))
+        
+        if nuevo_stock_casa_matriz == 0 and stock_anterior_casa_matriz > 0:
+            evento_alerta = {
+                "type": "stock_cero_matriz",
+                "codigo_producto": codigo_producto_upper,
+                "nombre_producto": nombre_producto,
+                "mensaje": f"¡ALERTA! Producto '{nombre_producto}' ({codigo_producto_upper}) ha alcanzado 0 stock en casa matriz. ¡Necesita restock!"
+            }
+            broadcast_stock_alert(json.dumps(evento_alerta))
+            app.logger.info(f"Evento de stock cero en MATRIZ BROADCAST para {codigo_producto_upper}")
         
         cursor.execute('''
             INSERT INTO productos_sucursales (producto_codigo, sucursal_id, cantidad, precio_local)
@@ -565,22 +623,17 @@ def retornar_stock_a_matriz(id_sucursal, codigo_producto):
         if conn: conn.close()
         return jsonify({"error": "Error interno de base de datos"}), 500
 
-# --- Nuevo Endpoint para "Comprar" Producto de Sucursal ---
 @app.route('/api/sucursal/<string:id_sucursal>/producto/<string:codigo_producto>/comprar', methods=['POST'])
 def comprar_producto_de_sucursal(id_sucursal, codigo_producto):
-    """Simula la compra de una unidad de un producto, descontando stock de la sucursal."""
     id_sucursal_upper = id_sucursal.upper()
     codigo_producto_upper = codigo_producto.upper()
-    
-    # Por ahora, asumimos que se compra 1 unidad. Se podría pasar como parámetro en el JSON.
     cantidad_comprada = 1 
 
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Verificar si el producto existe en la sucursal y obtener cantidad actual
         cursor.execute(
-            "SELECT cantidad FROM productos_sucursales WHERE producto_codigo = ? AND sucursal_id = ?",
+            "SELECT ps.cantidad, p.nombre as nombre_producto, sm.nombre_sucursal FROM productos_sucursales ps JOIN productos p ON ps.producto_codigo = p.codigo JOIN sucursales_maestras sm ON ps.sucursal_id = sm.id_sucursal WHERE ps.producto_codigo = ? AND ps.sucursal_id = ?",
             (codigo_producto_upper, id_sucursal_upper)
         )
         producto_en_sucursal = cursor.fetchone()
@@ -590,6 +643,8 @@ def comprar_producto_de_sucursal(id_sucursal, codigo_producto):
             return jsonify({"error": "Producto no disponible en esta sucursal."}), 404
 
         stock_actual_sucursal = producto_en_sucursal["cantidad"]
+        nombre_producto = producto_en_sucursal["nombre_producto"] # Para el evento
+        nombre_sucursal = producto_en_sucursal["nombre_sucursal"] # Para el evento
 
         if stock_actual_sucursal < cantidad_comprada:
             conn.close()
@@ -597,9 +652,8 @@ def comprar_producto_de_sucursal(id_sucursal, codigo_producto):
                 "error": "Stock insuficiente en la sucursal para esta compra.",
                 "stock_disponible_sucursal": stock_actual_sucursal,
                 "cantidad_solicitada": cantidad_comprada
-            }), 400 # Bad Request o 409 Conflict
+            }), 400
 
-        # Descontar stock de la sucursal
         nuevo_stock_sucursal = stock_actual_sucursal - cantidad_comprada
         cursor.execute(
             "UPDATE productos_sucursales SET cantidad = ? WHERE producto_codigo = ? AND sucursal_id = ?",
@@ -609,7 +663,21 @@ def comprar_producto_de_sucursal(id_sucursal, codigo_producto):
         
         app.logger.info(f"Compra simulada: {cantidad_comprada} unidad(es) de '{codigo_producto_upper}' en sucursal '{id_sucursal_upper}'. Nuevo stock sucursal: {nuevo_stock_sucursal}.")
         
-        # Devolver información actualizada del producto en la sucursal (opcional)
+        # Generar evento de compra exitosa
+        evento_compra = {
+            "type": "compra_exitosa",
+            "id_sucursal": id_sucursal_upper,
+            "nombre_sucursal": nombre_sucursal, # Añadido para el mensaje
+            "codigo_producto": codigo_producto_upper,
+            "nombre_producto": nombre_producto,
+            "stock_restante_sucursal": nuevo_stock_sucursal,
+            # Mensajes pre-formateados para el pop-up
+            "mensaje_compra": f"Alguien en {nombre_sucursal} compró {nombre_producto} ({codigo_producto_upper}) ¡ahora!",
+            "mensaje_stock": f"Solo quedan {nuevo_stock_sucursal} unidades en la sucursal."
+        }
+        broadcast_stock_alert(json.dumps(evento_compra))
+        app.logger.info(f"Evento de COMPRA EXITOSA BROADCAST para {codigo_producto_upper} en sucursal {id_sucursal_upper}")
+
         cursor.execute(
             "SELECT p.nombre, ps.cantidad, ps.precio_local FROM productos p JOIN productos_sucursales ps ON p.codigo = ps.producto_codigo WHERE ps.producto_codigo = ? AND ps.sucursal_id = ?",
             (codigo_producto_upper, id_sucursal_upper)
@@ -618,7 +686,7 @@ def comprar_producto_de_sucursal(id_sucursal, codigo_producto):
         conn.close()
 
         return jsonify({
-            "mensaje": f"¡Compra exitosa! {cantidad_comprada} unidad(es) de '{producto_actualizado_sucursal['nombre'] if producto_actualizado_sucursal else codigo_producto_upper}' comprada(s) de la sucursal '{id_sucursal_upper}'.",
+            "mensaje": f"¡Compra exitosa! {cantidad_comprada} unidad(es) de '{nombre_producto}' comprada(s) de la sucursal '{id_sucursal_upper}'.",
             "producto_actualizado_sucursal": dict(producto_actualizado_sucursal) if producto_actualizado_sucursal else None
         }), 200
 
@@ -628,6 +696,48 @@ def comprar_producto_de_sucursal(id_sucursal, codigo_producto):
         if conn: conn.close()
         return jsonify({"error": "Error interno de la base de datos durante la compra."}), 500
 
+
+@app.route('/api/stream_stock_alerts')
+def stream_stock_alerts():
+    client_event_queue = queue.Queue(maxsize=20) 
+    with sse_listeners_lock:
+        sse_listeners.append(client_event_queue)
+    app.logger.info(f"API_SSE_STREAM: Nuevo cliente conectado. Total listeners: {len(sse_listeners)}")
+
+    def event_stream():
+        last_keep_alive_sent = time.time()
+        keep_alive_interval = 15
+        try:
+            while True:
+                try:
+                    evento_json_str = client_event_queue.get(timeout=0.5) 
+                    yield f"data: {evento_json_str}\n\n"
+                    app.logger.info(f"API_SSE_STREAM: Evento enviado a un cliente: {evento_json_str}")
+                    client_event_queue.task_done()
+                    last_keep_alive_sent = time.time()
+                except queue.Empty:
+                    current_time = time.time()
+                    if current_time - last_keep_alive_sent > keep_alive_interval:
+                        yield ": keep-alive\n\n"
+                        app.logger.debug("API_SSE_STREAM: Keep-alive enviado a un cliente.")
+                        last_keep_alive_sent = current_time
+                except Exception as e_loop: 
+                    app.logger.error(f"API_SSE_STREAM: Error dentro del bucle de eventos para un cliente: {e_loop}")
+                    break 
+                time.sleep(0.05) 
+        except GeneratorExit:
+            app.logger.info("API_SSE_STREAM: Cliente desconectado (GeneratorExit).")
+        except Exception as e_stream:
+            app.logger.error(f"API_SSE_STREAM: Error crítico en el generador del stream para un cliente: {e_stream}")
+        finally:
+            with sse_listeners_lock:
+                try:
+                    sse_listeners.remove(client_event_queue)
+                    app.logger.info(f"API_SSE_STREAM: Cliente desconectado, cola eliminada. Listeners restantes: {len(sse_listeners)}")
+                except ValueError:
+                    app.logger.warning("API_SSE_STREAM: Intento de eliminar una cola de listener que ya no estaba en la lista.")
+            app.logger.info("API_SSE_STREAM: Stream cerrado para un cliente.")
+    return Response(event_stream(), mimetype="text/event-stream")
 
 if __name__ == '__main__':
     import logging 
@@ -644,4 +754,4 @@ if __name__ == '__main__':
     init_db() 
     app.logger.info(f"Base de datos '{DATABASE_FILE}' inicializada y lista para usarse.")
     
-    app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False)
+    app.run(host='0.0.0.0', port=5001, debug=True, threaded=True, use_reloader=False)
