@@ -8,7 +8,6 @@ import time
 app = Flask(__name__)
 app.secret_key = 'tu_super_secreto_aqui_cambialo_por_algo_seguro'
 
-# Configurar logging
 if not app.debug:
     logging.basicConfig(level=logging.INFO)
     app.logger.setLevel(logging.INFO)
@@ -555,37 +554,30 @@ def buscar_producto_redirect():
     request.form = original_form 
     return response_view
 
-# --- Ruta para el stream de notificaciones SSE hacia el frontend ---
-# Esta ruta es la que el JavaScript del frontend escuchará
 @app.route('/events/stock_notifications')
 def stock_notifications_stream():
     @stream_with_context 
     def generate_notifications():
         app.logger.info("APP_SSE_PROXY: Cliente frontend conectado al stream de notificaciones.")
-        retry_delay = 1  # Segundos para esperar antes de reintentar la conexión a la API
+        retry_delay = 1
         
         while True: 
             try:
-                api_sse_url = f"{API_BASE_URL}/stream_stock_alerts" # El endpoint SSE de tu api.py
+                api_sse_url = f"{API_BASE_URL}/stream_stock_alerts" 
                 app.logger.info(f"APP_SSE_PROXY: Intentando conectar al stream de la API: {api_sse_url}")
                 
-                # Usar un timeout para la conexión inicial y otro para la lectura del stream
-                with requests.get(api_sse_url, stream=True, timeout=(5, 60)) as r: # (connect_timeout, read_timeout para el stream)
-                    r.raise_for_status() # Verificar si la conexión inicial fue exitosa
+                
+                with requests.get(api_sse_url, stream=True, timeout=(5, 60)) as r: 
+                    r.raise_for_status() 
                     app.logger.info(f"APP_SSE_PROXY: Conectado exitosamente al stream de la API: {api_sse_url}")
-                    retry_delay = 1 # Resetear delay de reintento al conectar exitosamente
+                    retry_delay = 1 
 
                     for line in r.iter_lines(decode_unicode=True):
-                        # Los eventos SSE vienen como "data: <json_string>" o ": keep-alive"
-                        if not line: # Ignorar líneas vacías que a veces envían los keep-alives
-                            continue
                         
-                        # Reenviar la línea completa tal como llega de la API
-                        # Esto incluye tanto "data: ..." como ": keep-alive"
+                        if not line: 
+                            continue
                         app.logger.debug(f"APP_SSE_PROXY: Línea recibida de API y reenviando: '{line}'")
-                        yield f"{line}\n\n" # Asegurar doble salto de línea
-                
-                # Si el bucle for termina, significa que r.iter_lines() terminó (la conexión con api.py se cerró)
+                        yield f"{line}\n\n"
                 app.logger.info("APP_SSE_PROXY: Stream de la API cerrado (iter_lines completado).")
             
             except requests.exceptions.ConnectionError as e:
@@ -594,13 +586,12 @@ def stock_notifications_stream():
                  app.logger.error(f"APP_SSE_PROXY: Error HTTP del stream SSE de la API: {e}. Status: {e.response.status_code if e.response else 'N/A'}")
             except requests.exceptions.Timeout:
                 app.logger.error("APP_SSE_PROXY: Timeout al conectar/leer del stream SSE de la API.")
-            except Exception as e: # Captura más genérica para otros errores de requests o inesperados
+            except Exception as e: 
                 app.logger.error(f"APP_SSE_PROXY: Error inesperado en el stream de notificaciones (conexión a API): {type(e).__name__} - {e}")
             
-            # Si hay un error o el stream se cierra, esperar y reintentar.
             app.logger.info(f"APP_SSE_PROXY: Esperando {retry_delay}s antes de reintentar conexión al stream de la API.")
             time.sleep(retry_delay)
-            retry_delay = min(retry_delay * 2, 30) # Backoff exponencial hasta 30s
+            retry_delay = min(retry_delay * 2, 30) 
 
     return Response(generate_notifications(), mimetype='text/event-stream')
 

@@ -6,7 +6,6 @@ import time
 import queue 
 import json 
 import threading 
-# from werkzeug.serving import حوالي # Esta línea no es necesaria y 'حوالي' no está definido
 
 app = Flask(__name__)
 
@@ -67,7 +66,7 @@ def init_db():
 
 def obtener_tasa_cambio_actual_usd_clp():
     moneda_local_iso = "CLP"
-    if not EXCHANGE_RATE_API_KEY or EXCHANGE_RATE_API_KEY == "TU_API_KEY_AQUI": # Placeholder check
+    if not EXCHANGE_RATE_API_KEY or EXCHANGE_RATE_API_KEY == "TU_API_KEY_AQUI":
         app.logger.error("API Key para ExchangeRate-API no configurada. Usando valor por defecto.")
         return DEFAULT_TASA_CAMBIO_USD_CLP
     api_url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_RATE_API_KEY}/latest/USD"
@@ -107,7 +106,6 @@ def broadcast_stock_alert(evento_json_str):
 
 @app.route('/api/producto/<string:codigo_producto>', methods=['GET'])
 def obtener_info_producto(codigo_producto):
-    # ... (sin cambios) ...
     producto_codigo_upper = codigo_producto.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -134,7 +132,6 @@ def obtener_info_producto(codigo_producto):
 
 @app.route('/api/productos', methods=['GET'])
 def obtener_todos_los_productos():
-    # ... (sin cambios) ...
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT codigo, nombre FROM productos ORDER BY nombre")
@@ -144,7 +141,6 @@ def obtener_todos_los_productos():
 
 @app.route('/api/sucursales_maestras', methods=['GET'])
 def obtener_sucursales_maestras():
-    # ... (sin cambios) ...
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT id_sucursal, nombre_sucursal FROM sucursales_maestras ORDER BY nombre_sucursal")
@@ -154,7 +150,6 @@ def obtener_sucursales_maestras():
 
 @app.route('/api/sucursal/<string:id_sucursal>/productos', methods=['GET'])
 def obtener_productos_por_sucursal(id_sucursal):
-    # ... (sin cambios) ...
     id_sucursal_upper = id_sucursal.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -183,7 +178,6 @@ def obtener_productos_por_sucursal(id_sucursal):
 
 @app.route('/api/producto', methods=['POST'])
 def crear_producto():
-    # ... (modificado para usar broadcast_stock_alert si el stock es 0) ...
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
     codigo_producto = request.json.get('codigo_producto', '').strip().upper()
@@ -204,9 +198,9 @@ def crear_producto():
             (codigo_producto, nombre_producto, stock_casa_matriz)
         )
         conn.commit()
-        if stock_casa_matriz == 0: # Si se crea con stock 0, también es una alerta
+        if stock_casa_matriz == 0: 
             evento_alerta = {
-                "type": "stock_cero_matriz", # Tipo de evento específico para casa matriz
+                "type": "stock_cero_matriz", 
                 "codigo_producto": codigo_producto,
                 "nombre_producto": nombre_producto,
                 "mensaje": f"¡ALERTA! Producto '{nombre_producto}' ({codigo_producto}) necesita restock en casa matriz (creado con stock 0)."
@@ -226,7 +220,6 @@ def crear_producto():
 
 @app.route('/api/producto/<string:codigo_producto>', methods=['PUT'])
 def actualizar_producto(codigo_producto):
-    # ... (sin cambios) ...
     codigo_producto_upper = codigo_producto.upper()
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
@@ -252,7 +245,7 @@ def actualizar_producto(codigo_producto):
             campos_a_actualizar.append("nombre = ?")
             valores_a_actualizar.append(nuevo_nombre)
         
-        nuevo_stock_casa_matriz_val = None # Para la alerta SSE
+        nuevo_stock_casa_matriz_val = None 
         if stock_casa_matriz_str is not None:
             try:
                 nuevo_stock_casa_matriz_val = int(stock_casa_matriz_str)
@@ -274,7 +267,6 @@ def actualizar_producto(codigo_producto):
         cursor.execute(query_actualizacion, tuple(valores_a_actualizar))
         conn.commit()
 
-        # Generar alerta si el stock de casa matriz llega a 0
         if nuevo_stock_casa_matriz_val == 0 and stock_anterior_casa_matriz > 0:
             evento_alerta = {
                 "type": "stock_cero_matriz",
@@ -301,7 +293,6 @@ def actualizar_producto(codigo_producto):
 
 @app.route('/api/sucursal', methods=['POST'])
 def crear_sucursal_maestra():
-    # ... (sin cambios) ...
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
     id_sucursal = request.json.get('id_sucursal', '').strip().upper()
@@ -330,7 +321,6 @@ def crear_sucursal_maestra():
 
 @app.route('/api/sucursal/<string:id_sucursal>', methods=['GET'])
 def obtener_info_sucursal(id_sucursal):
-    # ... (sin cambios) ...
     id_sucursal_upper = id_sucursal.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -343,7 +333,6 @@ def obtener_info_sucursal(id_sucursal):
 
 @app.route('/api/sucursal/<string:id_sucursal>', methods=['PUT'])
 def actualizar_sucursal_maestra(id_sucursal):
-    # ... (sin cambios) ...
     id_sucursal_upper = id_sucursal.upper()
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
@@ -385,7 +374,6 @@ def actualizar_sucursal_maestra(id_sucursal):
 
 @app.route('/api/producto/<string:codigo_producto>/restock_matriz', methods=['POST'])
 def restock_casa_matriz(codigo_producto):
-    # ... (modificado para usar broadcast_stock_alert si el stock era 0 y ahora es > 0) ...
     codigo_producto_upper = codigo_producto.upper()
     if not request.json:
         return jsonify({"error": "La solicitud debe ser JSON"}), 400
@@ -414,11 +402,6 @@ def restock_casa_matriz(codigo_producto):
             (nuevo_stock, codigo_producto_upper)
         )
         conn.commit()
-
-        # Si el stock era 0 y ahora es > 0, podríamos enviar un evento de "restock_exitoso"
-        # Por ahora, nos enfocamos en la alerta de stock cero.
-        # Si el stock llega a cero por otra vía y luego se hace restock, la alerta de stock cero ya se habría enviado.
-
         cursor.execute("SELECT codigo, nombre, stock_casa_matriz FROM productos WHERE codigo = ?", (codigo_producto_upper,))
         producto_actualizado_db = cursor.fetchone()
         conn.close() 
@@ -436,7 +419,6 @@ def restock_casa_matriz(codigo_producto):
 
 @app.route('/api/producto/<string:codigo_producto>/sucursal', methods=['POST'])
 def agregar_o_actualizar_producto_en_sucursal(codigo_producto):
-    # ... (modificado para usar broadcast_stock_alert para stock CERO en casa matriz) ...
     codigo_producto_upper = codigo_producto.upper()
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -536,7 +518,6 @@ def agregar_o_actualizar_producto_en_sucursal(codigo_producto):
 
 @app.route('/api/sucursal/<string:id_sucursal>/producto/<string:codigo_producto>/quitar', methods=['POST'])
 def quitar_producto_de_sucursal(id_sucursal, codigo_producto):
-    # ... (sin cambios) ...
     id_sucursal_upper = id_sucursal.upper()
     codigo_producto_upper = codigo_producto.upper()
     conn = get_db_connection()
@@ -572,7 +553,6 @@ def quitar_producto_de_sucursal(id_sucursal, codigo_producto):
 
 @app.route('/api/sucursal/<string:id_sucursal>/producto/<string:codigo_producto>/retornar_stock', methods=['POST'])
 def retornar_stock_a_matriz(id_sucursal, codigo_producto):
-    # ... (sin cambios) ...
     id_sucursal_upper = id_sucursal.upper()
     codigo_producto_upper = codigo_producto.upper()
     conn = get_db_connection()
@@ -643,8 +623,8 @@ def comprar_producto_de_sucursal(id_sucursal, codigo_producto):
             return jsonify({"error": "Producto no disponible en esta sucursal."}), 404
 
         stock_actual_sucursal = producto_en_sucursal["cantidad"]
-        nombre_producto = producto_en_sucursal["nombre_producto"] # Para el evento
-        nombre_sucursal = producto_en_sucursal["nombre_sucursal"] # Para el evento
+        nombre_producto = producto_en_sucursal["nombre_producto"]
+        nombre_sucursal = producto_en_sucursal["nombre_sucursal"] 
 
         if stock_actual_sucursal < cantidad_comprada:
             conn.close()
@@ -663,15 +643,13 @@ def comprar_producto_de_sucursal(id_sucursal, codigo_producto):
         
         app.logger.info(f"Compra simulada: {cantidad_comprada} unidad(es) de '{codigo_producto_upper}' en sucursal '{id_sucursal_upper}'. Nuevo stock sucursal: {nuevo_stock_sucursal}.")
         
-        # Generar evento de compra exitosa
         evento_compra = {
             "type": "compra_exitosa",
             "id_sucursal": id_sucursal_upper,
-            "nombre_sucursal": nombre_sucursal, # Añadido para el mensaje
+            "nombre_sucursal": nombre_sucursal, 
             "codigo_producto": codigo_producto_upper,
             "nombre_producto": nombre_producto,
             "stock_restante_sucursal": nuevo_stock_sucursal,
-            # Mensajes pre-formateados para el pop-up
             "mensaje_compra": f"Alguien en {nombre_sucursal} compró {nombre_producto} ({codigo_producto_upper}) ¡ahora!",
             "mensaje_stock": f"Solo quedan {nuevo_stock_sucursal} unidades en la sucursal."
         }
