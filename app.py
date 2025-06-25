@@ -4,6 +4,9 @@ import datetime
 import logging
 import json 
 import time 
+import grpc
+import inventario_pb2
+import inventario_pb2_grpc
 
 app = Flask(__name__)
 app.secret_key = 'tu_super_secreto_aqui_cambialo_por_algo_seguro'
@@ -16,6 +19,7 @@ else:
     app.logger.setLevel(logging.DEBUG)
 
 API_BASE_URL = "http://127.0.0.1:5001/api"
+GRPC_API_ADDRESS = "localhost:50051" 
 DEFAULT_TASA_CAMBIO_USD_CLP = 980.0 
 ID_SUCURSAL_TIENDA = "S03" 
 
@@ -88,12 +92,23 @@ def buscar_producto():
     if not codigo_producto_buscado:
         flash("Por favor, ingrese un código de producto.", "warning")
         return redirect(url_for('pagina_inicio'))
+        
     try:
-        response = requests.get(f"{API_BASE_URL}/producto/{codigo_producto_buscado}")
-        if response.status_code == 200:
-            datos_producto = response.json()
+        with grpc.insecure_channel(GRPC_API_ADDRESS) as channel:
+            stub = inventario_pb2_grpc.InventarioServiceStub(channel)
+            grpc_request = inventario_pb2.ProductoRequest(codigo_producto=codigo_producto_buscado)
+            grpc_response = stub.ObtenerInfoProducto(grpc_request, timeout=5)
+            datos_producto = {
+                'codigo_producto': grpc_response.codigo_producto,
+                'nombre_producto': grpc_response.nombre_producto,
+                'stock_casa_matriz': grpc_response.stock_casa_matriz,
+                'sucursales': [{
+                    'nombre_sucursal': s.nombre_sucursal,
+                    'cantidad': s.cantidad
+                } for s in grpc_response.sucursales]
+            }
+
             if not datos_producto.get('codigo_producto'):
-                app.logger.error(f"API devolvió producto sin codigo_producto o vacío para búsqueda: {codigo_producto_buscado}. Respuesta API: {datos_producto}")
                 flash(f"Error: La API devolvió datos incompletos para el producto '{codigo_producto_buscado}'.", "error")
                 return redirect(url_for('pagina_inicio'))
 
@@ -101,16 +116,25 @@ def buscar_producto():
                 f"¡Alerta! Stock es 0 en {s.get('nombre_sucursal', 'N/A')}."
                 for s in datos_producto.get("sucursales", []) if s.get("cantidad", 0) == 0
             ]
+            
             return render_template('resultados.html',
                                    producto=datos_producto,
                                    mensajes_stock_bajo=mensajes_stock_bajo,
                                    current_year=get_current_year())
-        elif response.status_code == 404:
-            flash(f"Producto con código '{codigo_producto_buscado}' no encontrado.", "error")
+
+    except grpc.RpcError as e:
+        if e.code() == grpc.StatusCode.NOT_FOUND:
+            flash(f"Producto con código '{codigo_producto_buscado}' no encontrado (vía gRPC).", "error")
+        elif e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+            app.logger.error(f"Timeout de gRPC al buscar producto: {codigo_producto_buscado}")
+            flash(f"Error de comunicación gRPC: La solicitud tardó demasiado en responder.", "danger")
         else:
-            flash(f"Error de la API (código {response.status_code}): {response.text}", "error")
-    except requests.exceptions.RequestException as e:
-        flash(f"Error de conexión con la API en {API_BASE_URL}: {e}", "danger")
+            app.logger.error(f"Error de gRPC al buscar producto: {e.code()} - {e.details()}")
+            flash(f"Error de comunicación gRPC: {e.details()}", "danger")
+    except Exception as e:
+        app.logger.error(f"Error inesperado al usar gRPC: {e}")
+        flash(f"Error inesperado durante la búsqueda: {e}", "danger")
+        
     return redirect(url_for('pagina_inicio'))
 
 @app.route('/producto/nuevo', methods=['GET', 'POST'])

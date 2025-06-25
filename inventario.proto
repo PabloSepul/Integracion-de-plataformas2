@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+service InventarioService {
+  rpc ObtenerInfoProducto(ProductoRequest) returns (ProductoResponse);
+}
+
+message ProductoRequest {
+  string codigo_producto = 1;
+}
+
+message SucursalInfo {
+  string sucursal_id = 1;
+  string nombre_sucursal = 2;
+  int32 cantidad = 3;
+  double precio_local = 4;
+}
+
+message ProductoResponse {
+  string codigo_producto = 1;
+  string nombre_producto = 2;
+  int32 stock_casa_matriz = 3;
+  repeated SucursalInfo sucursales = 4;
+}

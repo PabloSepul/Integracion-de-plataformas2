@@ -6,12 +6,18 @@ import time
 import queue 
 import json 
 import threading 
+import grpc
+from concurrent import futures
+import inventario_pb2
+import inventario_pb2_grpc
+# ------------------------------------
 
 app = Flask(__name__)
 
 DATABASE_FILE = 'inventario.db'
 EXCHANGE_RATE_API_KEY = "b13c1920a6582926f6d00078" 
 DEFAULT_TASA_CAMBIO_USD_CLP = 980.0 
+GRPC_PORT = 50051
 
 sse_listeners = []
 sse_listeners_lock = threading.Lock() 
@@ -103,6 +109,49 @@ def broadcast_stock_alert(evento_json_str):
             except Exception as e: 
                 app.logger.error(f"API_SSE_BROADCAST: Error al poner en cola de listener: {e}")
 
+class InventarioServicer(inventario_pb2_grpc.InventarioServiceServicer):
+    def ObtenerInfoProducto(self, request, context):
+        app.logger.info(f"gRPC: Solicitud recibida para producto: {request.codigo_producto}")
+        producto_codigo_upper = request.codigo_producto.upper()
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT codigo, nombre, stock_casa_matriz FROM productos WHERE codigo = ?", (producto_codigo_upper,))
+        producto_db = cursor.fetchone()
+        
+        if not producto_db:
+            context.set_code(grpc.StatusCode.NOT_FOUND)
+            context.set_details(f"Producto con código '{producto_codigo_upper}' no encontrado.")
+            app.logger.warning(f"gRPC: Producto no encontrado: {producto_codigo_upper}")
+            conn.close()
+            return inventario_pb2.ProductoResponse()
+
+        response = inventario_pb2.ProductoResponse(
+            codigo_producto=producto_db["codigo"],
+            nombre_producto=producto_db["nombre"],
+            stock_casa_matriz=producto_db["stock_casa_matriz"]
+        )
+
+        cursor.execute('''
+            SELECT ps.sucursal_id, sm.nombre_sucursal, ps.cantidad, ps.precio_local
+            FROM productos_sucursales ps
+            JOIN sucursales_maestras sm ON ps.sucursal_id = sm.id_sucursal
+            WHERE ps.producto_codigo = ?
+        ''', (producto_codigo_upper,))
+        
+        for row in cursor.fetchall():
+            sucursal_info = inventario_pb2.SucursalInfo(
+                sucursal_id=row["sucursal_id"],
+                nombre_sucursal=row["nombre_sucursal"],
+                cantidad=row["cantidad"],
+                precio_local=row["precio_local"]
+            )
+            response.sucursales.append(sucursal_info)
+            
+        conn.close()
+        app.logger.info(f"gRPC: Enviando respuesta para producto: {response.codigo_producto}")
+        return response
 
 @app.route('/api/producto/<string:codigo_producto>', methods=['GET'])
 def obtener_info_producto(codigo_producto):
@@ -717,6 +766,14 @@ def stream_stock_alerts():
             app.logger.info("API_SSE_STREAM: Stream cerrado para un cliente.")
     return Response(event_stream(), mimetype="text/event-stream")
 
+def serve_grpc():
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    inventario_pb2_grpc.add_InventarioServiceServicer_to_server(InventarioServicer(), server)
+    server.add_insecure_port(f'[::]:{GRPC_PORT}')
+    server.start()
+    app.logger.info(f"Servidor gRPC iniciado y escuchando en el puerto {GRPC_PORT}.")
+    server.wait_for_termination()
+
 if __name__ == '__main__':
     import logging 
     if not app.debug:
@@ -732,4 +789,9 @@ if __name__ == '__main__':
     init_db() 
     app.logger.info(f"Base de datos '{DATABASE_FILE}' inicializada y lista para usarse.")
     
+    grpc_thread = threading.Thread(target=serve_grpc)
+    grpc_thread.daemon = True
+    grpc_thread.start()
+    # ---------------------------------------
+
     app.run(host='0.0.0.0', port=5001, debug=True, threaded=True, use_reloader=False)
